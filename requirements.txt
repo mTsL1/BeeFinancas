@@ -4,3 +4,4 @@ yfinance
 feedparser
 requests
 python-dateutil
+deep-translator
