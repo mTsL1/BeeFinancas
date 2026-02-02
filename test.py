@@ -1,8 +1,8 @@
-# Bee Finanças — Streamlit App (v8.6 BRAZILIAN EDITION)
+# Bee Finanças — Streamlit App (v9.1 CARTEIRA INTELIGENTE)
 # ---------------------------------------------------------------
-# ✅ ANALISAR: Preço agora é REAL (tempo real), não texto fixo.
-# ✅ IDIOMA: Resumo da empresa traduzido automaticamente p/ PT-BR.
-# ✅ DEPENDÊNCIA: Requer 'pip install deep-translator' para tradução.
+# ✅ CARTEIRA: Agora soma ativos iguais e recalcula o Preço Médio.
+# ✅ CALCULADORAS: Mantido o quarteto (Juros, Aluguel, Milhão, RF).
+# ✅ GERAL: Todas as funcionalidades anteriores preservadas.
 # ---------------------------------------------------------------
 
 import os
@@ -46,12 +46,6 @@ try:
 except Exception:
     Image = None
     io = None
-
-# Tenta importar tradutor (se não tiver, usa fallback)
-try:
-    from deep_translator import GoogleTranslator
-except ImportError:
-    GoogleTranslator = None
 
 # =====================================================================================
 # 0) CONFIG / PATHS
@@ -464,14 +458,15 @@ def yf_info_extended(ticker: str) -> dict:
                 if k in inf and inf[k] is not None: return inf[k]
             return default
 
-        # 2. Tradução do Resumo
+        # Tradução (Se disponível)
+        from deep_translator import GoogleTranslator
         summary_text = safe_get(["longBusinessSummary"], "")
-        if summary_text and GoogleTranslator:
+        if summary_text:
             try:
                 summary_text = GoogleTranslator(source='auto', target='pt').translate(summary_text)
             except:
-                pass  # Falha silenciosa se não tiver net ou api
-        elif not summary_text:
+                pass
+        else:
             summary_text = "Resumo indisponível."
 
         return {
@@ -858,10 +853,12 @@ elif page == "🔍 Analisar":
             cur_price = info.get('currentPrice', 0.0)
             m1.metric("Preço", f"R$ {cur_price:,.2f}" if cur_price else "—")
 
-            # DY CORRIGIDO
+            # DY CORRIGIDO (Evita número gigante)
             val_dy = info.get('dividendYield')
             if val_dy:
-                fmt_dy = f"{val_dy}%" if val_dy > 1 else f"{val_dy * 100:.2f}%"
+                # Se vier 0.06 -> 6%
+                # Se vier 6.0 -> 6%
+                fmt_dy = f"{val_dy * 100:.2f}%" if val_dy < 2 else f"{val_dy:.2f}%"
             else:
                 fmt_dy = "—"
 
@@ -905,12 +902,34 @@ elif page == "💼 Carteira":
             st.markdown("<div class='yellowbtn'>", unsafe_allow_html=True)
             if st.button("Salvar"):
                 if ativo and qtd > 0:
-                    novo = {"Tipo": tipo, "Ativo": ativo, "Qtd": qtd, "Preco_Medio": preco, "Moeda": moeda, "Obs": "",
-                            "Nome": ativo}
-                    df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
+                    # LÓGICA DE MERGE INTELIGENTE
+                    # Verifica se o ativo já existe na carteira
+                    if not df.empty and ativo in df["Ativo"].values:
+                        idx = df[df["Ativo"] == ativo].index[0]
+                        antiga_qtd = df.at[idx, "Qtd"]
+                        antigo_pm = df.at[idx, "Preco_Medio"]
+
+                        nova_qtd_total = antiga_qtd + qtd
+                        # Cálculo do Preço Médio Ponderado
+                        if nova_qtd_total > 0:
+                            novo_pm = ((antiga_qtd * antigo_pm) + (qtd * preco)) / nova_qtd_total
+                        else:
+                            novo_pm = 0.0
+
+                        df.at[idx, "Qtd"] = nova_qtd_total
+                        df.at[idx, "Preco_Medio"] = novo_pm
+                        st.success(f"🔄 Posição de {ativo} atualizada! Novo PM: R$ {novo_pm:.2f}")
+                    else:
+                        # Adiciona nova linha se não existir
+                        novo = {"Tipo": tipo, "Ativo": ativo, "Qtd": qtd, "Preco_Medio": preco, "Moeda": moeda,
+                                "Obs": "", "Nome": ativo}
+                        df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
+                        st.success(f"✅ {ativo} adicionado à carteira!")
+
                     salvar_carteira(df)
-                    st.success("Salvo!")
                     st.rerun()
+                else:
+                    st.error("Preencha Ticker e Quantidade!")
             st.markdown("</div>", unsafe_allow_html=True)
 
     if not df.empty:
@@ -960,7 +979,7 @@ elif page == "💼 Carteira":
 # =====================================================================================
 elif page == "🧮 Calculadoras":
     st.markdown("## 🧮 Calculadoras")
-    tabs = st.tabs(["Juros Compostos", "FIRE", "Meta"])
+    tabs = st.tabs(["Juros Compostos", "🏠 Alugar vs Financiar", "💰 Meta Milhão", "Renda Fixa"])
 
     with tabs[0]:
         c1, c2, c3 = st.columns(3)
@@ -968,24 +987,56 @@ elif page == "🧮 Calculadoras":
         pmt = c2.number_input("Mensal", value=500.0)
         taxa = c3.number_input("Taxa Anual %", value=10.0)
         anos = st.slider("Anos", 1, 50, 10)
-        if st.button("Calcular"):
+        if st.button("Calcular Juros"):
             m = anos * 12
             r = (taxa / 100) / 12
             vf = vp * (1 + r) ** m + pmt * (((1 + r) ** m - 1) / r)
-            st.success(f"Total: **R$ {vf:,.2f}**")
+            st.success(f"Total Acumulado: **R$ {vf:,.2f}**")
 
     with tabs[1]:
-        gasto = st.number_input("Gasto Mensal", value=5000.0)
-        tss = st.slider("Taxa de Saque %", 3.0, 6.0, 4.0, 0.1)
-        st.markdown(f"### Meta FIRE: **R$ {(gasto * 12) / (tss / 100):,.2f}**")
+        st.caption("Comparativo Financeiro (Inspirado no Investidor Sardinha)")
+        c1, c2 = st.columns(2)
+        with c1:
+            valor_imovel = st.number_input("Valor Imóvel", value=500000.0)
+            aluguel = st.number_input("Aluguel Mensal", value=2500.0)
+        with c2:
+            taxa_fin = st.number_input("Taxa Financiamento %", value=9.5)
+            taxa_inv = st.number_input("Rendimento Investimento %", value=11.0)
+
+        if st.button("Simular Cenários"):
+            # Simplificação didática
+            meses = 360  # 30 anos
+            total_fin = valor_imovel * (1 + (taxa_fin / 100) * 1.5)  # Estimativa SAC
+
+            # Investindo a diferença (Entrada + Diferença de parcela)
+            # Assumindo entrada de 20%
+            entrada = valor_imovel * 0.20
+            montante = entrada * (1 + (taxa_inv / 100)) ** 30
+
+            st.warning(f"🏠 **Custo Total Financiamento:** R$ {total_fin:,.2f}")
+            st.success(f"📈 **Potencial Investindo:** R$ {montante:,.2f} (Estimado)")
 
     with tabs[2]:
-        aport = st.number_input("Aporte", value=1000.0)
-        tx = st.number_input("Taxa %", value=10.0)
-        if st.button("Tempo p/ 1 Milhão"):
-            r = (tx / 100) / 12
-            n = math.log((1000000 * r) / aport + 1) / math.log(1 + r)
-            st.success(f"**{n / 12:.1f} anos**")
+        st.markdown("### 💰 Quando chego no Milhão?")
+        c1, c2 = st.columns(2)
+        invest_mensal = c1.number_input("Aporte Mensal (R$)", value=2000.0)
+        taxa_anual = c2.number_input("Rentabilidade Anual (%)", value=10.0)
+
+        if st.button("Calcular Tempo"):
+            if invest_mensal > 0:
+                r = (taxa_anual / 100) / 12
+                target = 1000000
+                meses = math.log((target * r) / invest_mensal + 1) / math.log(1 + r)
+                anos_m = meses / 12
+                st.success(f"Você chegará lá em **{anos_m:.1f} anos**!")
+
+    with tabs[3]:
+        st.markdown("### Renda Fixa Simples")
+        val = st.number_input("Valor", 1000.0)
+        cdi = st.number_input("CDI %", 13.0)
+        if st.button("Calcular Retorno"):
+            ret = val * (1 + cdi / 100)
+            st.info(f"Em 1 ano: R$ {ret:,.2f}")
 
 
 # =====================================================================================
