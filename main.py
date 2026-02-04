@@ -1,4 +1,4 @@
-# Bee Finanças — Streamlit App (v33.0 FINAL - MULTI-USER & DB)
+# Bee Finanças — Streamlit App (v33.1 FIXED - LOGO & DATA FETCH)
 # Single-file / Portable / Login System included
 # ---------------------------------------------------------------
 # requirements.txt:
@@ -22,14 +22,14 @@ from PIL import Image
 
 warnings.filterwarnings("ignore")
 
-APP_VERSION = "v33.0 (MULTI-USER DB)"
+APP_VERSION = "v33.1 (FIXED DATA)"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.jpeg")
 DB_FILE = "bee_database.db"
 
 # --------------------------------------------------------------------------------
-# 1) IMPORTS (optional)
+# 1) IMPORTS (SAFE)
 # --------------------------------------------------------------------------------
 try:
     import yfinance as yf
@@ -232,18 +232,29 @@ def human_time_ago(dt: datetime) -> str:
 
 
 def normalize_ticker(ativo: str, tipo: str, moeda: str) -> str:
+    # Remove espaços e joga pra maiusculo
     a = (ativo or "").strip().upper()
     if not a:
         return ""
+
+    # Se já tem .SA ou extensões globais, mantém
     if a.endswith(".SA") or a.endswith("-USD") or a.endswith("=X") or a.startswith("^"):
         return a
+
+    # Cripto costuma ter hífen na busca do YF (ex: BTC-USD)
     if tipo == "Cripto":
         return a if "-" in a else f"{a}-USD"
+
+    # Moedas
     if a in ("BRL=X", "USDBRL", "USD", "DOLAR"):
         return "BRL=X"
+
+    # Lógica Brasil: se não tem .SA e é ação (tem numero), adiciona .SA
+    # Ex: PETR4 -> PETR4.SA. Mas AAPL -> AAPL (EUA)
     has_digit = any(ch.isdigit() for ch in a)
     if moeda == "BRL" and has_digit and not a.endswith(".SA"):
         return f"{a}.SA"
+
     return a
 
 
@@ -276,33 +287,27 @@ def calculate_rsi(data, window=14):
 
 
 # --------------------------------------------------------------------------------
-# 4) Data fetch
+# 4) Data fetch (FIXED AND ROBUST)
 # --------------------------------------------------------------------------------
 @st.cache_data(ttl=600)
 def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
     if yf is None or not tickers:
         return pd.DataFrame(columns=["ticker", "last", "prev", "var_pct"])
+
+    # 1. Tentativa de download em lote
     try:
-        data = yf.download(tickers, period="7d", progress=False, threads=True, group_by="ticker")
+        # auto_adjust=False é CRÍTICO em algumas versões do YF para evitar NaN
+        data = yf.download(tickers, period="5d", progress=False, threads=True, group_by="ticker", auto_adjust=False)
     except Exception:
         return pd.DataFrame(columns=["ticker", "last", "prev", "var_pct"])
 
     out = []
-    for t in tickers:
+
+    # Se for apenas 1 ticker, a estrutura do DF é diferente (não tem MultiIndex nas colunas de nível superior)
+    if len(tickers) == 1:
+        t = tickers[0]
         try:
-            s = None
-            if isinstance(data.columns, pd.MultiIndex):
-                if ("Close", t) in data.columns:
-                    s = data[("Close", t)]
-                elif (t, "Close") in data.columns:
-                    s = data[(t, "Close")]
-            else:
-                if "Close" in data.columns:
-                    s = data["Close"]
-
-            if s is None:
-                continue
-
+            s = data["Close"]
             s = pd.to_numeric(s, errors="coerce").dropna()
             if len(s) >= 2:
                 last = float(s.iloc[-1])
@@ -311,6 +316,32 @@ def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
                 out.append({"ticker": t, "last": last, "prev": prev, "var_pct": var_pct})
         except Exception:
             pass
+    else:
+        # Vários tickers
+        for t in tickers:
+            try:
+                s = None
+                if isinstance(data.columns, pd.MultiIndex):
+                    if ("Close", t) in data.columns:
+                        s = data[("Close", t)]
+                    elif (t, "Close") in data.columns:
+                        s = data[(t, "Close")]
+                else:
+                    if "Close" in data.columns:
+                        s = data["Close"]
+
+                if s is None:
+                    continue
+
+                s = pd.to_numeric(s, errors="coerce").dropna()
+                if len(s) >= 2:
+                    last = float(s.iloc[-1])
+                    prev = float(s.iloc[-2])
+                    var_pct = ((last - prev) / prev) * 100 if prev else 0.0
+                    out.append({"ticker": t, "last": last, "prev": prev, "var_pct": var_pct})
+            except Exception:
+                pass
+
     return pd.DataFrame(out)
 
 
@@ -337,15 +368,22 @@ def yf_info_extended(ticker: str) -> dict:
     try:
         tk = yf.Ticker(ticker)
         current_price = 0.0
+
+        # Tenta pegar preço histórico recente como fallback seguro
         try:
-            if hasattr(tk, "fast_info") and tk.fast_info:
-                current_price = float(tk.fast_info.last_price or 0.0)
-            else:
-                h = tk.history(period="1d")
-                if not h.empty:
-                    current_price = float(h["Close"].iloc[-1])
+            h = tk.history(period="5d", auto_adjust=False)
+            if not h.empty:
+                current_price = float(h["Close"].iloc[-1])
         except Exception:
             pass
+
+        # Se falhou histórico, tenta fast_info (mas ele costuma falhar menos)
+        if current_price == 0.0:
+            try:
+                if hasattr(tk, "fast_info") and tk.fast_info:
+                    current_price = float(tk.fast_info.last_price or 0.0)
+            except:
+                pass
 
         inf = tk.info or {}
 
@@ -388,7 +426,7 @@ def get_stock_history_plot(ticker: str, period="1y"):
     if yf is None or go is None:
         return None, None
     try:
-        df = yf.Ticker(ticker).history(period=period)
+        df = yf.Ticker(ticker).history(period=period, auto_adjust=False)
         if df.empty:
             return None, None
 
@@ -450,11 +488,11 @@ def get_google_news_items(query: str, limit: int = 8) -> list[dict]:
 def show_asset_details_popup(ativo_selecionado):
     tk_real = normalize_ticker(ativo_selecionado, "Ação", "BRL")
 
-    with st.spinner(f"Carregando dados de {ativo_selecionado}..."):
+    with st.spinner(f"Carregando dados de {tk_real}..."):
         info = yf_info_extended(tk_real)
         fig, rsi = get_stock_history_plot(tk_real, period="6mo")
 
-    if info:
+    if info and info.get("currentPrice", 0) > 0:
         st.markdown(f"### {info.get('longName', ativo_selecionado)}")
 
         def mini_metric(label, value):
@@ -509,7 +547,8 @@ def show_asset_details_popup(ativo_selecionado):
                 unsafe_allow_html=True
             )
     else:
-        st.error("Não foi possível carregar os detalhes deste ativo.")
+        st.warning(
+            f"Não conseguimos dados para {tk_real}. Verifique se o ticker está correto (Ex: PETR4.SA) ou se o Yahoo Finance está instável.")
 
 
 # --------------------------------------------------------------------------------
@@ -534,7 +573,7 @@ st.markdown(
     """
 <style>
 /* =========================
-   BEE THEME (v32) — CSS ONLY
+   BEE THEME (v33) — CSS ONLY
    Paleta: Amarelo / Preto / Marrom / Branco
    ========================= */
 
@@ -961,6 +1000,7 @@ def atualizar_precos_carteira_memory(df):
         except Exception:
             pass
 
+    # Normalize ticker
     df["Ticker_YF"] = df.apply(
         lambda r: normalize_ticker(str(r["Ativo"]), "Ação", str(r.get("Moeda", "BRL")).upper()),
         axis=1,
@@ -972,6 +1012,7 @@ def atualizar_precos_carteira_memory(df):
 
     tickers = df.loc[~is_rf, "Ticker_YF"].unique().tolist()
     px_map = {}
+
     if tickers and yf is not None:
         px_df = yf_last_and_prev_close(tickers)
         for _, r in px_df.iterrows():
@@ -1043,6 +1084,8 @@ if not st.session_state["user_logged_in"]:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
+
+        # LOGO FIX: Exibir logo ANTES das tabs
         if logo_img:
             st.image(logo_img, width=150)
         else:
@@ -1122,6 +1165,7 @@ with st.sidebar:
         ibov_val = ibov_pct = None
         usd_val = usd_pct = None
         if yf is not None:
+            # Tenta baixar IBOV e USD
             snap = yf_last_and_prev_close(["^BVSP", "BRL=X"])
             if not snap.empty:
                 ib = snap[snap["ticker"] == "^BVSP"]
@@ -1308,7 +1352,8 @@ if page == "🏠 Home":
 
         if px is not None and yf is not None:
             try:
-                chart_data = yf.Ticker(tk_norm).history(period="1mo")
+                # Tenta baixar com period="1mo" e auto_adjust=False
+                chart_data = yf.Ticker(tk_norm).history(period="1mo", auto_adjust=False)
                 if not chart_data.empty:
                     fig_mini = px.line(chart_data, y="Close")
                     fig_mini.update_layout(
@@ -1443,12 +1488,12 @@ elif page == "🔍 Analisar":
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.warning("Sem gráfico disponível.")
+                st.warning("Sem gráfico disponível. O Yahoo Finance pode estar instável para este ativo.")
 
             with st.expander("Resumo da Empresa"):
                 st.write(info.get("summary", "—"))
         else:
-            st.error("Ativo não encontrado.")
+            st.error("Ativo não encontrado ou Yahoo Finance inacessível.")
 
 elif page == "💼 Carteira":
     st.markdown("## 💼 Carteira 2.0 (Multi-User)")
