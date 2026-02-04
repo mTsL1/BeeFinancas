@@ -1,4 +1,4 @@
-# Bee Finanças — Streamlit App (v27.0 FINAL - LAYOUT FIX)
+# Bee Finanças — Streamlit App (v32.0 FINAL - POP-UP FIX)
 # Single-file / Portable
 # ---------------------------------------------------------------
 # requirements.txt:
@@ -8,7 +8,7 @@
 import os
 import math
 import warnings
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import urllib.parse
 
 import streamlit as st
@@ -19,7 +19,7 @@ from PIL import Image
 
 warnings.filterwarnings("ignore")
 
-APP_VERSION = "v27.0 (FINAL)"
+APP_VERSION = "v32.0 (POP-UP FIX)"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.jpeg")
@@ -61,7 +61,6 @@ def process_logo_transparency(image_path):
         datas = img.getdata()
         new_data = []
         for item in datas:
-            # remove fundo branco
             if item[0] > 200 and item[1] > 200 and item[2] > 200:
                 new_data.append((255, 255, 255, 0))
             else:
@@ -73,13 +72,12 @@ def process_logo_transparency(image_path):
 
 
 def fmt_ptbr_number(x, decimals=2):
-    """Formata número em padrão pt-BR: milhar '.' e decimal ','."""
     try:
         if x is None:
             return "—"
         x = float(x)
-        s = f"{x:,.{decimals}f}"  # 1,234.56
-        s = s.replace(",", "X").replace(".", ",").replace("X", ".")  # 1.234,56
+        s = f"{x:,.{decimals}f}"
+        s = s.replace(",", "X").replace(".", ",").replace("X", ".")
         return s
     except Exception:
         return "—"
@@ -147,6 +145,18 @@ def format_market_cap(x: float) -> str:
         return "—"
 
 
+def calculate_rsi(data, window=14):
+    try:
+        delta = data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi.iloc[-1]
+    except:
+        return None
+
+
 # --------------------------------------------------------------------------------
 # 3) Data fetch
 # --------------------------------------------------------------------------------
@@ -169,7 +179,6 @@ def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
                 elif (t, "Close") in data.columns:
                     s = data[(t, "Close")]
             else:
-                # single ticker
                 if "Close" in data.columns:
                     s = data["Close"]
 
@@ -189,10 +198,6 @@ def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
 
 @st.cache_data(ttl=15)
 def binance_24h(symbol: str) -> dict:
-    """
-    Binance public endpoint: returns lastPrice and priceChangePercent.
-    symbol ex: BTCBRL, BTCUSDT
-    """
     try:
         url = "https://api.binance.com/api/v3/ticker/24hr"
         r = requests.get(url, params={"symbol": symbol}, timeout=3)
@@ -239,6 +244,10 @@ def yf_info_extended(ticker: str) -> dict:
             except Exception:
                 pass
 
+        roe = safe_get(["returnOnEquity"])
+        margins = safe_get(["profitMargins"])
+        beta = safe_get(["beta"])
+
         return {
             "currentPrice": current_price,
             "longName": safe_get(["longName", "shortName"], ticker),
@@ -248,6 +257,9 @@ def yf_info_extended(ticker: str) -> dict:
             "trailingPE": safe_get(["trailingPE", "forwardPE"], None),
             "dividendYield": safe_get(["dividendYield"], None),
             "marketCap": safe_get(["marketCap"], None),
+            "roe": roe,
+            "margins": margins,
+            "beta": beta
         }
     except Exception:
         return {}
@@ -256,11 +268,12 @@ def yf_info_extended(ticker: str) -> dict:
 @st.cache_data(ttl=3600)
 def get_stock_history_plot(ticker: str, period="1y"):
     if yf is None or go is None:
-        return None
+        return None, None
     try:
         df = yf.Ticker(ticker).history(period=period)
         if df.empty:
-            return None
+            return None, None
+
         fig = go.Figure(
             data=[
                 go.Candlestick(
@@ -281,9 +294,12 @@ def get_stock_history_plot(ticker: str, period="1y"):
             margin=dict(l=0, r=0, t=10, b=0),
             height=320,
         )
-        return fig
+
+        rsi_val = calculate_rsi(df)
+
+        return fig, rsi_val
     except Exception:
-        return None
+        return None, None
 
 
 @st.cache_data(ttl=900)
@@ -310,6 +326,77 @@ def get_google_news_items(query: str, limit: int = 8) -> list[dict]:
 
 
 # --------------------------------------------------------------------------------
+# NEW: DIALOG FUNCTION (CUSTOM METRICS)
+# --------------------------------------------------------------------------------
+@st.dialog("🔍 Raio-X do Ativo")
+def show_asset_details_popup(ativo_selecionado):
+    tk_real = normalize_ticker(ativo_selecionado, "Ação", "BRL")
+
+    with st.spinner(f"Carregando dados de {ativo_selecionado}..."):
+        info = yf_info_extended(tk_real)
+        fig, rsi = get_stock_history_plot(tk_real, period="6mo")
+
+    if info:
+        st.markdown(f"### {info.get('longName', ativo_selecionado)}")
+
+        # Helper para criar metrics menores via HTML puro
+        def mini_metric(label, value):
+            return f"""
+            <div style="text-align:center; background:rgba(255,255,255,0.03); border-radius:8px; padding:8px;">
+                <div style="font-size:11px; color:#888; text-transform:uppercase; margin-bottom:4px;">{label}</div>
+                <div style="font-size:20px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{value}</div>
+            </div>
+            """
+
+        m1, m2, m3 = st.columns(3)
+
+        with m1:
+            val_fmt = fmt_money_brl(info.get("currentPrice"), 2)
+            st.markdown(mini_metric("Preço", val_fmt), unsafe_allow_html=True)
+
+        with m2:
+            dy_val = info.get('dividendYield', 0)
+            if dy_val is None: dy_val = 0
+            # Proteção visual contra numeros gigantes
+            fmt_dy = f"{dy_val * 100:.2f}%"
+            st.markdown(mini_metric("DY (Yield)", fmt_dy), unsafe_allow_html=True)
+
+        with m3:
+            pe_val = info.get('trailingPE', 0)
+            if pe_val is None: pe_val = 0
+            fmt_pe = f"{pe_val:.2f}"
+            st.markdown(mini_metric("P/L", fmt_pe), unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+
+        if rsi:
+            rsi_text = f"{rsi:.1f}"
+            if rsi > 70:
+                rsi_status = "⚠️ Sobrecomprado"
+                rsi_color_code = "#FF3B30"
+            elif rsi < 30:
+                rsi_status = "💎 Sobrevendido"
+                rsi_color_code = "#00C805"
+            else:
+                rsi_status = "Neutro"
+                rsi_color_code = "#FFD700"
+
+            st.markdown(
+                f"<div style='text-align:center; padding:10px; border:1px solid #333; border-radius:10px; background:#111; margin-top:10px;'>"
+                f"<span style='color:#ccc; font-size:13px'>RSI (14):</span> "
+                f"<strong style='color:{rsi_color_code}; font-size:18px'>{rsi_text}</strong><br>"
+                f"<span style='font-size:11px; color:#777'>{rsi_status}</span>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+    else:
+        st.error("Não foi possível carregar os detalhes deste ativo.")
+
+
+# --------------------------------------------------------------------------------
 # 4) Streamlit config + CSS
 # --------------------------------------------------------------------------------
 logo_img = process_logo_transparency(LOGO_PATH)
@@ -321,127 +408,188 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# =========================
+#  CSS NOVO (BEE THEME) — layout only
+# =========================
 st.markdown(
     """
 <style>
-/* --- FUNDO --- */
+/* =========================
+   BEE THEME (v32) — CSS ONLY
+   Paleta: Amarelo / Preto / Marrom / Branco
+   ========================= */
+
+:root{
+  --bee-yellow: #FFD700;
+  --bee-yellow-soft: rgba(255,215,0,0.12);
+  --bee-black: #0B0F14;
+  --bee-black-2: #090C10;
+  --bee-surface: rgba(255,255,255,0.035);
+  --bee-surface-2: rgba(255,255,255,0.02);
+  --bee-border: rgba(255,255,255,0.08);
+  --bee-border-2: rgba(255,255,255,0.12);
+  --bee-white: #FFFFFF;
+  --bee-muted: rgba(255,255,255,0.65);
+  --bee-muted-2: rgba(255,255,255,0.45);
+  --bee-brown: #5D4037;
+  --bee-brown-soft: rgba(93,64,55,0.25);
+  --bee-good: #00C805;
+  --bee-bad: #FF3B30;
+
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 18px;
+  --shadow-1: 0 12px 28px rgba(0,0,0,0.35);
+  --shadow-2: 0 8px 18px rgba(0,0,0,0.25);
+}
+
+/* ====== FUNDO (colmeia sutil) ====== */
 .stApp{
   background:
-    radial-gradient(circle at 15% 15%, rgba(255, 215, 0, 0.05), transparent 35%),
-    radial-gradient(circle at 85% 85%, rgba(89, 0, 179, 0.10), transparent 35%),
-    #0B0F14;
+    radial-gradient(circle at 18% 18%, rgba(255,215,0,0.08), transparent 38%),
+    radial-gradient(circle at 78% 82%, rgba(93,64,55,0.22), transparent 45%),
+    radial-gradient(circle at 55% 35%, rgba(255,255,255,0.03), transparent 40%),
+    /* honeycomb-ish */
+    linear-gradient(30deg, rgba(255,215,0,0.03) 12%, transparent 12.5%, transparent 87%, rgba(255,215,0,0.03) 87.5%, rgba(255,215,0,0.03)),
+    linear-gradient(150deg, rgba(255,215,0,0.03) 12%, transparent 12.5%, transparent 87%, rgba(255,215,0,0.03) 87.5%, rgba(255,215,0,0.03)),
+    linear-gradient(90deg, rgba(255,215,0,0.02) 2%, transparent 2.5%, transparent 97%, rgba(255,215,0,0.02) 97.5%, rgba(255,215,0,0.02)),
+    var(--bee-black);
+  background-size: auto, auto, auto, 64px 64px, 64px 64px, 64px 64px, auto;
+  background-position: center, center, center, 0 0, 0 0, 0 0, center;
 }
+
+/* ====== TIPOGRAFIA ====== */
 h1, h2, h3, h4{
-  color:#FFD700 !important;
+  color: var(--bee-yellow) !important;
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-weight: 900;
   letter-spacing:-0.03em;
 }
+p, span, div { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 
-/* --- SIDEBAR --- */
+/* Ajuste de espaçamentos gerais */
+div[data-testid="stVerticalBlock"] { gap: 0.40rem !important; }
+
+/* ====== SIDEBAR ====== */
 section[data-testid="stSidebar"]{
-  background:#090C10;
-  border-right: 1px solid rgba(255,255,255,0.06);
+  background: linear-gradient(180deg, #07090D 0%, #090C10 55%, #07090D 100%);
+  border-right: 1px solid rgba(255,215,0,0.10);
 }
 section[data-testid="stSidebar"] img{
   display:block;
-  margin: 0 auto 10px auto;
+  margin: 6px auto 10px auto;
   object-fit:contain;
   max-width:100%;
+  filter: drop-shadow(0 10px 20px rgba(0,0,0,0.35));
 }
+
 .menu-header{
   font-size:10px;
   text-transform:uppercase;
-  color:#444;
-  font-weight:900;
-  letter-spacing:1px;
+  color: rgba(255,215,0,0.45);
+  font-weight: 900;
+  letter-spacing:1.1px;
   margin-top: 10px;
   margin-bottom: 6px;
   padding-left: 4px;
 }
 
-/* reduzir espaçamento geral no sidebar */
-div[data-testid="stSidebarUserContent"] .stButton{ margin-bottom: 4px !important; }
-div[data-testid="stVerticalBlock"] { gap: 0.18rem !important; }
-
-/* NAV BUTTONS compactos */
+/* ====== NAV BUTTONS ====== */
 .navbtn button{
   width:100%;
-  background: linear-gradient(90deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%) !important;
-  color:#CFCFCF !important;
-  border:1px solid rgba(255,255,255,0.06) !important;
-  border-radius:10px !important;
-  padding: 0.40rem 0.8rem !important;
-  margin: 0px !important;
-  font-weight:800 !important;
+  background: linear-gradient(90deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.018) 100%) !important;
+  color: rgba(255,255,255,0.78) !important;
+  border:1px solid rgba(255,255,255,0.07) !important;
+  border-radius: 12px !important;
+  padding: 0.42rem 0.85rem !important;
+  font-weight: 900 !important;
   font-size: 13px !important;
   text-align:left !important;
-  transition: all .15s ease;
-  height: 38px !important;
+  transition: all .14s ease;
+  height: 40px !important;
   display:flex !important;
   align-items:center !important;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.20);
 }
 .navbtn button:hover{
-  background: linear-gradient(90deg, rgba(255,215,0,0.10) 0%, rgba(255,215,0,0.03) 100%) !important;
-  border-left: 3px solid #FFD700 !important;
-  transform: translateX(2px);
+  background: linear-gradient(90deg, rgba(255,215,0,0.14) 0%, rgba(93,64,55,0.16) 100%) !important;
+  border-color: rgba(255,215,0,0.35) !important;
+  transform: translateX(3px);
+}
+.navbtn button:focus{ outline: none !important; }
+
+/* ====== DIVIDER / HR ====== */
+hr, .stDivider{
+  border-color: rgba(255,255,255,0.08) !important;
 }
 
-/* CARDS */
+/* ====== CARDS (bee-card) ====== */
 .bee-card{
-  background: rgba(255,255,255,0.02);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 18px;
   padding: 16px;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-2);
+  position: relative;
+  overflow: hidden;
+}
+.bee-card::before{
+  content:"";
+  position:absolute;
+  inset:-2px;
+  background: radial-gradient(circle at 20% 0%, rgba(255,215,0,0.16), transparent 40%),
+              radial-gradient(circle at 90% 100%, rgba(93,64,55,0.22), transparent 42%);
+  opacity: .55;
+  pointer-events:none;
 }
 .card-title{
-  color:#FFD700;
-  font-weight:900;
-  font-size:11px;
-  text-transform:uppercase;
-  letter-spacing:1px;
+  color: rgba(255,215,0,0.85);
+  font-weight: 900;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
   margin-bottom: 6px;
 }
 .kpi{
-  color:#fff;
-  font-weight: 900;
-  font-size: 24px;
+  color: #fff;
+  font-weight: 950;
+  font-size: 26px;
   line-height: 1.05;
+  text-shadow: 0 10px 25px rgba(0,0,0,0.35);
 }
 .sub{
-  color:#7A7A7A;
-  font-size:12px;
+  color: rgba(255,255,255,0.60);
+  font-size: 12px;
   margin-top: 6px;
 }
-
-/* KPI compact */
 .kpi-compact .kpi{ font-size: 22px !important; }
 .kpi-small .kpi{ font-size: 20px !important; }
 
-/* NEWS CARDS */
+/* ====== NEWS CARDS ====== */
 a.news-card-link{ text-decoration:none; display:block; margin-bottom:10px; }
 .news-card-box{
-  background:#141A22;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 14px;
   padding: 14px 14px;
-  transition: all .15s ease;
+  transition: all .14s ease;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.25);
 }
 .news-card-box:hover{
-  border-color:#FFD700;
+  border-color: rgba(255,215,0,0.45);
   transform: translateY(-2px);
-  box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+  box-shadow: 0 16px 34px rgba(0,0,0,0.32);
 }
 .nc-title{
   color:#fff;
-  font-weight: 900;
+  font-weight: 950;
   font-size: 14px;
   line-height: 1.35;
   margin-bottom: 6px;
 }
 .nc-meta{
-  color:#9A9A9A;
+  color: rgba(255,255,255,0.60);
   font-size: 12px;
   display:flex;
   gap:8px;
@@ -449,59 +597,147 @@ a.news-card-link{ text-decoration:none; display:block; margin-bottom:10px; }
 }
 .nc-badge{
   background: rgba(255,215,0,0.14);
-  color:#FFD700;
-  padding: 2px 8px;
+  color: var(--bee-yellow);
+  padding: 2px 9px;
   border-radius: 999px;
   font-size: 10px;
   font-weight: 900;
   text-transform: uppercase;
+  border: 1px solid rgba(255,215,0,0.20);
 }
 
-/* MARKET MONITOR */
+/* ====== MARKET MONITOR PILLS ====== */
 .ticker-pill{
-  background: rgba(255,255,255,0.03);
-  border-radius: 10px;
-  padding: 8px 10px;
-  margin-bottom: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  border-radius: 12px;
+  padding: 9px 10px;
+  margin-bottom: 8px;
   display:flex;
   justify-content: space-between;
   align-items:center;
-  border-left: 3px solid #555;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 10px 18px rgba(0,0,0,0.22);
 }
-.tp-up{ border-left-color:#00C805; }
-.tp-down{ border-left-color:#FF3B30; }
-.tp-name{ font-weight:900; font-size:12px; color:#D7D7D7; }
-.tp-price{ font-weight:900; font-size:12px; color:#FFF; }
-.tp-pct{ font-size:11px; font-weight:900; }
+.tp-up{ border-left: 4px solid var(--bee-good); }
+.tp-down{ border-left: 4px solid var(--bee-bad); }
+.tp-name{ font-weight: 950; font-size: 12px; color: rgba(255,255,255,0.80); }
+.tp-price{ font-weight: 950; font-size: 12px; color: #FFF; }
+.tp-pct{ font-size: 11px; font-weight: 950; }
 
-/* INPUTS */
-.stTextInput input, .stNumberInput input, .stSelectbox div, .stDateInput input{
-  background:#12171E !important;
-  color:#fff !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
+/* ====== INPUTS / SELECT / DATE ====== */
+.stTextInput input, .stNumberInput input, .stDateInput input{
+  background: rgba(18,23,30,0.92) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255,215,0,0.16) !important;
+  border-radius: 12px !important;
+}
+.stSelectbox > div > div{
+  background: rgba(18,23,30,0.92) !important;
+  border: 1px solid rgba(255,215,0,0.16) !important;
   border-radius: 12px !important;
 }
 
-/* botão amarelo */
+/* ====== BUTTONS (global) ====== */
+.stButton button, .stDownloadButton button{
+  border-radius: 12px !important;
+  font-weight: 950 !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)) !important;
+  color: rgba(255,255,255,0.88) !important;
+  box-shadow: 0 10px 18px rgba(0,0,0,0.22);
+  transition: all .14s ease;
+}
+.stButton button:hover, .stDownloadButton button:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,215,0,0.28) !important;
+}
+
+/* botão amarelo (sua classe) */
 .yellowbtn button{
-  background:#FFD700 !important;
-  color:#000 !important;
-  border:none !important;
-  font-weight: 900 !important;
+  background: linear-gradient(180deg, var(--bee-yellow), #FFC400) !important;
+  color: #000 !important;
+  border: none !important;
   border-radius: 12px !important;
+  box-shadow: 0 16px 30px rgba(255,215,0,0.18);
 }
 .yellowbtn button:hover{
   transform: translateY(-1px);
-  box-shadow: 0 10px 25px rgba(255,215,0,0.22);
+  box-shadow: 0 18px 36px rgba(255,215,0,0.22);
 }
 
-/* footer */
+/* ====== METRICS ====== */
+div[data-testid="stMetric"]{
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 12px 12px;
+  box-shadow: 0 12px 22px rgba(0,0,0,0.22);
+}
+div[data-testid="stMetric"] label{
+  color: rgba(255,215,0,0.75) !important;
+  font-weight: 900 !important;
+}
+div[data-testid="stMetric"] [data-testid="stMetricValue"]{
+  color: #fff !important;
+  font-weight: 950 !important;
+}
+
+/* ====== TABS ====== */
+.stTabs [data-baseweb="tab-list"]{
+  gap: 8px;
+}
+.stTabs [data-baseweb="tab"]{
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  padding: 10px 14px;
+  color: rgba(255,255,255,0.75);
+  font-weight: 950;
+}
+.stTabs [aria-selected="true"]{
+  background: rgba(255,215,0,0.16);
+  border-color: rgba(255,215,0,0.28);
+  color: #fff;
+}
+
+/* ====== EXPANDER ====== */
+details{
+  border-radius: 14px !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  background: rgba(255,255,255,0.02) !important;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.20);
+}
+details summary{
+  color: rgba(255,255,255,0.86) !important;
+  font-weight: 950 !important;
+}
+
+/* ====== PROGRESS BAR ====== */
+div[data-testid="stProgress"] > div > div{
+  background: linear-gradient(90deg, #FFC400, var(--bee-yellow)) !important;
+}
+
+/* ====== DATAFRAME / TABLE CONTAINER (mais “card”) ====== */
+div[data-testid="stDataFrame"], div[data-testid="stTable"]{
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 12px 22px rgba(0,0,0,0.20);
+}
+
+/* ====== LINK BUTTON ====== */
+a[data-testid="stLinkButton"]{
+  border-radius: 12px !important;
+}
+
+/* ====== FOOTER ====== */
 .bee-footer{
   margin-top: 18px;
-  opacity: .55;
+  opacity: .62;
   font-size: 12px;
   display:flex;
   justify-content: space-between;
+  color: rgba(255,255,255,0.60);
 }
 </style>
 """,
@@ -524,6 +760,10 @@ if "gastos_mode" not in st.session_state:
     st.session_state["gastos_mode"] = False
 if "page" not in st.session_state:
     st.session_state["page"] = "🏠 Home"
+if "patrimonio_meta" not in st.session_state:
+    st.session_state["patrimonio_meta"] = 100000.0
+if "gasto_meta" not in st.session_state:
+    st.session_state["gasto_meta"] = 3000.0
 
 
 def smart_load_csv(uploaded_file, sep_priority=","):
@@ -557,7 +797,6 @@ def atualizar_precos_carteira_memory(df):
     if df.empty:
         return df, {"total_brl": 0, "pnl_brl": 0, "pnl_pct": 0}
 
-    # câmbio via yahoo (fallback simples)
     usdbrl = 5.80
     if yf is not None:
         try:
@@ -644,9 +883,7 @@ def kpi_card(title, value, sub="", color=None, compact=False, small=False):
 
 
 def investidor10_link(ativo: str) -> str:
-    # melhor esforço: tenta ações / fiis / etfs
     a = (ativo or "").strip().upper().replace(".SA", "")
-    # ações BR: normalmente tem número
     if any(ch.isdigit() for ch in a):
         return f"https://investidor10.com.br/acoes/{a.lower()}/"
     return f"https://investidor10.com.br/"
@@ -673,14 +910,12 @@ with st.sidebar:
 
     st.divider()
 
-    # MARKET MONITOR (sem SELIC)
     try:
         st.markdown(
             "<div style='font-size:12px; color:#666; font-weight:900; margin-bottom:10px; text-transform:uppercase;'>Market Monitor</div>",
             unsafe_allow_html=True,
         )
 
-        # IBOV + USD/BRL via Yahoo
         ibov_val = ibov_pct = None
         usd_val = usd_pct = None
         if yf is not None:
@@ -695,7 +930,6 @@ with st.sidebar:
                     usd_val = float(fx.iloc[0]["last"])
                     usd_pct = float(fx.iloc[0]["var_pct"])
 
-        # BTC via Binance (mais confiável p/ BRL)
         btcusd = binance_24h("BTCUSDT")
         btcbrl = binance_24h("BTCBRL")
 
@@ -734,7 +968,6 @@ with st.sidebar:
             pill("BTC (US$)", "—", None)
 
         if btcbrl:
-            # compacta (R$ muito grande)
             pill("BTC (R$)", f"R$ {fmt_ptbr_number(btcbrl['last'], 0)}" if btcbrl.get('last') else "—",
                  btcbrl.get("var_pct"))
         else:
@@ -744,21 +977,18 @@ with st.sidebar:
         pass
 
 # --------------------------------------------------------------------------------
-# 8) Top bar (Clock + Refresh)
+# 8) Top bar
 # --------------------------------------------------------------------------------
 c_spacer, c_info = st.columns([6, 2.5])
 
 with c_spacer:
-    st.write("")  # spacer
+    st.write("")
 
 with c_info:
-    # Cria duas sub-colunas: uma pro relogio (maior) e outra pro botao (menor)
-    # gap="small" aproxima os dois elementos
     c_clock, c_btn = st.columns([2.5, 1], gap="small")
 
     with c_clock:
         now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
-        # Visual do relogio estilo "pill" alinhado
         st.markdown(
             f"""
             <div style='
@@ -780,7 +1010,6 @@ with c_info:
         )
 
     with c_btn:
-        # Botao simples, ocupando a largura da coluninha
         if st.button("↻", key="top_refresh", help="Atualizar dados", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
@@ -795,7 +1024,6 @@ page = st.session_state["page"]
 if page == "🏠 Home":
     st.markdown("## 📌 Visão do Mercado")
 
-    # KPIs horizontais
     ibov_val = ibov_pct = None
     usd_val = usd_pct = None
     if yf is not None:
@@ -831,7 +1059,6 @@ if page == "🏠 Home":
         kpi_card("BTC (US$)", val, sub, color="#FFD700", compact=True)
     with c4:
         if btcbrl:
-            # muito grande -> small
             val = f"R$ {fmt_ptbr_number(btcbrl['last'], 0)}"
             sub = f"{btcbrl.get('var_pct', 0):+.2f}% (24h)"
         else:
@@ -841,7 +1068,6 @@ if page == "🏠 Home":
     st.write("")
     st.markdown("### ⚡ Acesso Rápido")
 
-    # label não pode ser vazio: coloca "Ticker" e esconde
     quick_ticker = st.text_input(
         "Ticker",
         placeholder="Ex: PETR4, VALE3, IVVB11...",
@@ -936,7 +1162,7 @@ elif page == "📰 Notícias":
         st.info("Sem notícias agora.")
 
 elif page == "🔍 Analisar":
-    st.markdown("## 🔍 Analisar")
+    st.markdown("## 🔍 Analisar Pro")
     c_s, c_p = st.columns([3, 1])
     with c_s:
         ticker = st.text_input("Ativo", placeholder="WEGE3 / PETR4 / IVVB11 / AAPL",
@@ -973,19 +1199,51 @@ elif page == "🔍 Analisar":
                 st.metric("Market Cap", format_market_cap(info.get("marketCap")))
 
             st.markdown("---")
-            fig = get_stock_history_plot(tk_real, period=periodo)
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                roe_val = info.get('roe')
+                st.metric("ROE (Rentab.)", f"{roe_val * 100:.2f}%" if roe_val else "—")
+            with f2:
+                mg_val = info.get('margins')
+                st.metric("Margem Líq.", f"{mg_val * 100:.2f}%" if mg_val else "—")
+            with f3:
+                beta_val = info.get('beta')
+                st.metric("Beta (Volat.)", f"{beta_val:.2f}" if beta_val else "—")
+
+            st.markdown("---")
+            fig, rsi = get_stock_history_plot(tk_real, period=periodo)
+
+            if rsi:
+                rsi_color = "normal"
+                rsi_text = f"{rsi:.1f}"
+                if rsi > 70:
+                    rsi_status = "⚠️ Sobrecomprado (Cara?)"
+                    rsi_color_code = "#FF3B30"
+                elif rsi < 30:
+                    rsi_status = "💎 Sobrevendido (Barata?)"
+                    rsi_color_code = "#00C805"
+                else:
+                    rsi_status = "Neutro"
+                    rsi_color_code = "#FFD700"
+
+                st.markdown(
+                    f"**RSI (IFR 14):** <span style='color:{rsi_color_code}; font-weight:bold; font-size:18px'>{rsi_text}</span> — {rsi_status}",
+                    unsafe_allow_html=True)
+                st.caption(
+                    "RSI acima de 70 indica alta forte (risco correção). Abaixo de 30 indica baixa forte (oportunidade?).")
+
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.warning("Sem gráfico.")
+                st.warning("Sem gráfico disponível.")
 
-            with st.expander("Resumo (PT-BR)"):
+            with st.expander("Resumo da Empresa"):
                 st.write(info.get("summary", "—"))
         else:
             st.error("Ativo não encontrado.")
 
 elif page == "💼 Carteira":
-    st.markdown("## 💼 Carteira (Cofre Local)")
+    st.markdown("## 💼 Carteira 2.0")
     wallet_active = (not st.session_state["carteira_df"].empty) or st.session_state["wallet_mode"]
 
     if not wallet_active:
@@ -1009,67 +1267,21 @@ elif page == "💼 Carteira":
     else:
         df = st.session_state["carteira_df"]
 
-        with st.expander("➕ Adicionar Ativo", expanded=True):
-            f1, f2, f3 = st.columns([1, 1, 1])
-            with f1:
-                tipo = st.selectbox("Tipo", ["Ação/ETF", "Cripto", "Renda Fixa"])
-                ativo = st.text_input("Ticker/Nome", label_visibility="collapsed",
-                                      placeholder="Ex: ABEV3 / IVVB11 / BTC").upper().strip()
-            with f2:
-                qtd = st.number_input("Qtd", min_value=0.0, step=0.01)
-                preco = st.number_input("Preço Médio", min_value=0.0, step=0.01)
-            with f3:
-                moeda = st.selectbox("Moeda", ["BRL", "USD"])
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown("<div class='yellowbtn'>", unsafe_allow_html=True)
-                add = st.button("Adicionar", use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            if add:
-                if ativo and qtd > 0:
-                    if ativo in df["Ativo"].values:
-                        idx = df[df["Ativo"] == ativo].index[0]
-                        old_q = float(df.at[idx, "Qtd"])
-                        old_pm = float(df.at[idx, "Preco_Medio"])
-                        new_q = old_q + qtd
-                        new_pm = ((old_q * old_pm) + (qtd * preco)) / new_q if new_q > 0 else 0
-                        df.at[idx, "Qtd"] = new_q
-                        df.at[idx, "Preco_Medio"] = new_pm
-                    else:
-                        df = pd.concat(
-                            [
-                                df,
-                                pd.DataFrame(
-                                    [
-                                        {
-                                            "Tipo": tipo,
-                                            "Ativo": ativo,
-                                            "Nome": ativo,
-                                            "Qtd": qtd,
-                                            "Preco_Medio": preco,
-                                            "Moeda": moeda,
-                                            "Obs": "",
-                                        }
-                                    ]
-                                ),
-                            ],
-                            ignore_index=True,
-                        )
-                    st.session_state["carteira_df"] = df
-                    st.rerun()
-
-        with st.expander("🗑️ Remover", expanded=False):
-            if not df.empty:
-                ativos_disponiveis = df["Ativo"].unique().tolist()
-                ativo_rm = st.selectbox("Selecione", ativos_disponiveis)
-                if st.button(f"Excluir {ativo_rm}"):
-                    df = df[df["Ativo"] != ativo_rm]
-                    st.session_state["carteira_df"] = df
-                    st.rerun()
-
         if not df.empty:
-            with st.spinner("Atualizando preços..."):
+            with st.spinner("Sincronizando preços..."):
                 df_calc, kpi = atualizar_precos_carteira_memory(df)
+
+            total_patrimonio = kpi["total_brl"]
+            c_meta, c_set = st.columns([4, 1])
+            with c_set:
+                nova_meta = st.number_input("Sua Meta (R$)", value=st.session_state["patrimonio_meta"], step=10000.0,
+                                            label_visibility="collapsed")
+                st.session_state["patrimonio_meta"] = nova_meta
+
+            with c_meta:
+                progresso = min(total_patrimonio / nova_meta, 1.0) if nova_meta > 0 else 0
+                st.progress(progresso)
+                st.caption(f"Meta: {fmt_money_brl(nova_meta, 0)} ({(progresso * 100):.1f}%)")
 
             k1, k2, k3 = st.columns(3)
             with k1:
@@ -1081,38 +1293,85 @@ elif page == "💼 Carteira":
             with k3:
                 kpi_card("ATIVOS", f"{len(df_calc)}", "Diversificação", compact=True)
 
-            st.write("")
-            show_df = df_calc[["Tipo", "Ativo", "Qtd", "Preco_Medio", "Preco_Atual_BRL", "Total_BRL", "PnL_Pct"]].copy()
+            if px and not df_calc.empty:
+                g1, g2 = st.columns([1, 2])
+                with g1:
+                    fig_pie = px.pie(df_calc, values='Total_BRL', names='Ativo', hole=0.6,
+                                     color_discrete_sequence=px.colors.sequential.RdBu)
+                    fig_pie.update_layout(margin=dict(l=0, r=0, t=10, b=10), height=200, paper_bgcolor="rgba(0,0,0,0)",
+                                          showlegend=False)
+                    fig_pie.add_annotation(text=f"{len(df_calc)} Ativos", x=0.5, y=0.5, font_size=12, showarrow=False,
+                                           font_color="white")
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                with g2:
+                    st.markdown("#### 🔴 Monitor de Rentabilidade")
+                    st.caption("Clique na linha para abrir o Pop-up com detalhes")
 
-            st.dataframe(
-                show_df.style.format(
-                    {
-                        "Qtd": "{:.4f}",
-                        "Preco_Medio": "R$ {:.2f}",
-                        "Preco_Atual_BRL": "R$ {:.2f}",
-                        "Total_BRL": "R$ {:.2f}",
-                        "PnL_Pct": "{:+.2f}%",
-                    }
-                ),
+                    live_df = df_calc[["Ativo", "Qtd", "Preco_Medio", "Preco_Atual_BRL", "PnL_Pct", "Total_BRL"]].copy()
+
+                    # --- INTERACTIVE DATAFRAME SELECTION + POP-UP TRIGGER ---
+                    selection = st.dataframe(
+                        live_df,
+                        column_config={
+                            "Ativo": "Ativo",
+                            "Qtd": st.column_config.NumberColumn("Qtd", format="%.2f"),
+                            "Preco_Medio": st.column_config.NumberColumn("Preço Médio", format="R$ %.2f"),
+                            "Preco_Atual_BRL": st.column_config.NumberColumn("Preço Atual", format="R$ %.2f"),
+                            "PnL_Pct": st.column_config.NumberColumn("Rentab. %", format="%.2f %%"),
+                            "Total_BRL": st.column_config.NumberColumn("Total", format="R$ %.2f"),
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                        height=250,
+                        on_select="rerun",
+                        selection_mode="single-row"
+                    )
+
+                    # Quando seleciona, chama o st.dialog
+                    if selection and selection.selection.rows:
+                        idx_sel = selection.selection.rows[0]
+                        ativo_selecionado = live_df.iloc[idx_sel]["Ativo"]
+                        show_asset_details_popup(ativo_selecionado)
+
+        # --- EDIÇÃO DE ATIVOS (FECHADO POR PADRÃO) ---
+        st.write("---")
+        with st.expander("📝 Adicionar / Editar Ativos", expanded=False):
+            st.caption("Edite os valores na tabela abaixo para atualizar sua carteira.")
+
+            edit_cols = ["Tipo", "Ativo", "Qtd", "Preco_Medio", "Moeda", "Obs"]
+            edited_df = st.data_editor(
+                df[edit_cols],
+                num_rows="dynamic",
                 use_container_width=True,
-                height=420,
+                column_config={
+                    "Qtd": st.column_config.NumberColumn("Qtd", min_value=0.0, step=0.01, format="%.4f"),
+                    "Preco_Medio": st.column_config.NumberColumn("Preço Médio", min_value=0.0, step=0.01,
+                                                                 format="R$ %.2f"),
+                    "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Ação/ETF", "Cripto", "Renda Fixa"]),
+                    "Moeda": st.column_config.SelectboxColumn("Moeda", options=["BRL", "USD"]),
+                },
+                key="editor_carteira"
             )
 
-        st.write("---")
+            if st.button("💾 Salvar Alterações", type="primary"):
+                st.session_state["carteira_df"] = edited_df
+                st.toast("Carteira atualizada com sucesso!", icon="✅")
+                st.rerun()
+
+        st.write("")
         st.download_button(
             "⬇️ Baixar CSV",
             df.to_csv(index=False).encode("utf-8"),
             "minha_carteira.csv",
-            "text/csv",
-            type="primary",
+            "text/csv"
         )
-        if st.button("Sair"):
+        if st.button("Sair da Carteira"):
             st.session_state["carteira_df"] = pd.DataFrame(columns=CARTEIRA_COLS)
             st.session_state["wallet_mode"] = False
             st.rerun()
 
 elif page == "💸 Controle":
-    st.markdown("## 💸 Controle de Gastos")
+    st.markdown("## 💸 Controle de Gastos 2.0")
     gastos_active = (not st.session_state["gastos_df"].empty) or st.session_state["gastos_mode"]
 
     if not gastos_active:
@@ -1145,9 +1404,13 @@ elif page == "💸 Controle":
         mes_atual_str = today.strftime("%Y-%m")
         idx_mes = meses_disp.index(mes_atual_str) if mes_atual_str in meses_disp else (len(meses_disp) - 1)
 
-        col_sel, _ = st.columns([1, 3])
+        col_sel, col_meta = st.columns([2, 2])
         with col_sel:
-            mes_selecionado = st.selectbox("Mês", meses_disp, index=idx_mes)
+            mes_selecionado = st.selectbox("📅 Mês", meses_disp, index=idx_mes)
+        with col_meta:
+            nova_meta_gasto = st.number_input("💰 Orçamento Mensal (R$)", value=st.session_state["gasto_meta"],
+                                              step=100.0)
+            st.session_state["gasto_meta"] = nova_meta_gasto
 
         mask_mes = df_g["Data"].dt.strftime("%Y-%m") == mes_selecionado
         df_filtered = df_g[mask_mes]
@@ -1155,6 +1418,14 @@ elif page == "💸 Controle":
         total_ent = float(df_filtered[df_filtered["Tipo"] == "Entrada"]["Valor"].sum())
         total_sai = float(df_filtered[df_filtered["Tipo"] == "Saída"]["Valor"].sum())
         saldo = total_ent - total_sai
+
+        percent_gasto = min(total_sai / nova_meta_gasto, 1.0) if nova_meta_gasto > 0 else 0
+        cor_barra = "green"
+        if percent_gasto > 0.75: cor_barra = "orange"
+        if percent_gasto > 0.95: cor_barra = "red"
+
+        st.markdown(f"**Orçamento usado:** {percent_gasto * 100:.1f}% de {fmt_money_brl(nova_meta_gasto, 0)}")
+        st.progress(percent_gasto)
 
         k1, k2, k3 = st.columns(3)
         with k1:
@@ -1164,9 +1435,28 @@ elif page == "💸 Controle":
         with k3:
             st.metric("Saldo", fmt_money_brl(saldo, 2))
 
+        st.markdown("### 📊 Análise Visual")
+        if px is not None and not df_filtered.empty and total_sai > 0:
+            tab_g1, tab_g2 = st.tabs(["Por Categoria", "Evolução Diária"])
+
+            with tab_g1:
+                df_pie = df_filtered[df_filtered["Tipo"] == "Saída"].groupby("Categoria")["Valor"].sum().reset_index()
+                fig = px.pie(df_pie, values="Valor", names="Categoria", hole=0.5,
+                             color_discrete_sequence=px.colors.sequential.Magma)
+                fig.update_layout(height=300, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+
+            with tab_g2:
+                df_daily = df_filtered[df_filtered["Tipo"] == "Saída"].groupby("Data")["Valor"].sum().reset_index()
+                fig_bar = px.bar(df_daily, x="Data", y="Valor", color="Valor", color_continuous_scale="Reds")
+                fig_bar.update_layout(height=300, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_bar, use_container_width=True)
+        elif df_filtered.empty:
+            st.info("Nenhum lançamento neste mês.")
+
         st.write("---")
 
-        with st.expander("➕ Nova Transação", expanded=True):
+        with st.expander("➕ Nova Transação", expanded=False):
             with st.form("form_gastos", clear_on_submit=True):
                 c1, c2, c3, c4 = st.columns(4)
                 d_data = c1.date_input("Data", value=today)
@@ -1200,42 +1490,33 @@ elif page == "💸 Controle":
                     }
                     df_g = pd.concat([df_g, pd.DataFrame([new_row])], ignore_index=True)
                     st.session_state["gastos_df"] = df_g
+                    st.toast("Transação salva!", icon="💸")
                     st.rerun()
 
-        c_chart, c_table = st.columns([1, 2])
-        with c_chart:
-            if px is not None and (not df_filtered.empty) and total_sai > 0:
-                df_pie = df_filtered[df_filtered["Tipo"] == "Saída"].groupby("Categoria")["Valor"].sum().reset_index()
-                fig = px.pie(df_pie, values="Valor", names="Categoria", hole=0.6)
-                fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=260, paper_bgcolor="rgba(0,0,0,0)",
-                                  showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
-            elif df_filtered.empty:
-                st.info("Sem dados no mês.")
-
-        with c_table:
-            st.markdown("##### Extrato")
-            df_g_edited = st.data_editor(
-                df_g,
-                num_rows="dynamic",
-                column_config={
-                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                    "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
-                },
-                use_container_width=True,
-                height=340,
-            )
-            if st.button("Salvar alterações"):
-                st.session_state["gastos_df"] = df_g_edited
-                st.rerun()
+        st.markdown("##### Extrato Detalhado")
+        df_g_edited = st.data_editor(
+            df_g,
+            num_rows="dynamic",
+            column_config={
+                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
+                "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Entrada", "Saída"]),
+            },
+            use_container_width=True,
+            height=340,
+            key="editor_gastos"
+        )
+        if st.button("💾 Salvar Alterações no Extrato"):
+            st.session_state["gastos_df"] = df_g_edited
+            st.toast("Extrato atualizado!", icon="✅")
+            st.rerun()
 
         st.write("---")
         st.download_button(
             "⬇️ Baixar meus_gastos.csv",
             df_g.to_csv(index=False).encode("utf-8"),
             "meus_gastos.csv",
-            "text/csv",
-            type="primary",
+            "text/csv"
         )
         if st.button("Sair"):
             st.session_state["gastos_df"] = pd.DataFrame(columns=GASTOS_COLS)
@@ -1292,7 +1573,7 @@ elif page == "🧮 Calculadoras":
             st.info(f"1 ano: {fmt_money_brl(total, 2)}")
 
 # --------------------------------------------------------------------------------
-# 10) Footer (versão)
+# 10) Footer
 # --------------------------------------------------------------------------------
 st.markdown(
     f"""
