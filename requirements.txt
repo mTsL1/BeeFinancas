@@ -4,5 +4,5 @@ yfinance
 plotly
 feedparser
 requests
-pillow
-python-dateutil
+Pillow
+deep-translator

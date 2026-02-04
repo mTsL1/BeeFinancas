@@ -1,5 +1,5 @@
-# Bee Finanças — Streamlit App (v32.0 FINAL - POP-UP FIX)
-# Single-file / Portable
+# Bee Finanças — Streamlit App (v33.0 FINAL - MULTI-USER & DB)
+# Single-file / Portable / Login System included
 # ---------------------------------------------------------------
 # requirements.txt:
 # streamlit, pandas, yfinance, plotly, feedparser, requests, pillow, deep-translator
@@ -8,6 +8,9 @@
 import os
 import math
 import warnings
+import sqlite3
+import hashlib
+import json
 from datetime import datetime, timezone, timedelta
 import urllib.parse
 
@@ -19,10 +22,11 @@ from PIL import Image
 
 warnings.filterwarnings("ignore")
 
-APP_VERSION = "v32.0 (POP-UP FIX)"
+APP_VERSION = "v33.0 (MULTI-USER DB)"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.jpeg")
+DB_FILE = "bee_database.db"
 
 # --------------------------------------------------------------------------------
 # 1) IMPORTS (optional)
@@ -51,7 +55,121 @@ except Exception:
 
 
 # --------------------------------------------------------------------------------
-# 2) Helpers
+# 2) DATABASE & AUTH HELPERS
+# --------------------------------------------------------------------------------
+def init_db():
+    """Inicializa o banco de dados SQLite local."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # Tabela de usuários
+    c.execute('''
+              CREATE TABLE IF NOT EXISTS users
+              (
+                  username
+                  TEXT
+                  PRIMARY
+                  KEY,
+                  password
+                  TEXT,
+                  name
+                  TEXT
+              )
+              ''')
+    # Tabela de dados (Carteira e Gastos em JSON para flexibilidade)
+    c.execute('''
+              CREATE TABLE IF NOT EXISTS user_data
+              (
+                  username
+                  TEXT
+                  PRIMARY
+                  KEY,
+                  carteira_json
+                  TEXT,
+                  gastos_json
+                  TEXT
+              )
+              ''')
+    conn.commit()
+    conn.close()
+
+
+def hash_password(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+
+def create_user(username, password, name):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute('INSERT INTO users (username, password, name) VALUES (?, ?, ?)',
+                  (username, hash_password(password), name))
+        # Cria entrada vazia na tabela de dados
+        c.execute('INSERT INTO user_data (username, carteira_json, gastos_json) VALUES (?, ?, ?)',
+                  (username, "{}", "{}"))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def login_user(username, password):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT name FROM users WHERE username = ? AND password = ?',
+              (username, hash_password(password)))
+    data = c.fetchone()
+    conn.close()
+    return data[0] if data else None
+
+
+def save_user_data_db(username, carteira_df, gastos_df):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Converter DataFrames para JSON string
+    c_json = carteira_df.to_json(orient='records', date_format='iso') if not carteira_df.empty else "{}"
+    g_json = gastos_df.to_json(orient='records', date_format='iso') if not gastos_df.empty else "{}"
+
+    c.execute('''
+              INSERT INTO user_data (username, carteira_json, gastos_json)
+              VALUES (?, ?, ?) ON CONFLICT(username) 
+        DO
+              UPDATE SET carteira_json=excluded.carteira_json, gastos_json=excluded.gastos_json
+              ''', (username, c_json, g_json))
+    conn.commit()
+    conn.close()
+
+
+def load_user_data_db(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT carteira_json, gastos_json FROM user_data WHERE username = ?', (username,))
+    data = c.fetchone()
+    conn.close()
+
+    c_df = pd.DataFrame(columns=["Tipo", "Ativo", "Nome", "Qtd", "Preco_Medio", "Moeda", "Obs"])
+    g_df = pd.DataFrame(columns=["Data", "Categoria", "Descricao", "Tipo", "Valor", "Pagamento"])
+
+    if data:
+        c_json, g_json = data
+        try:
+            if c_json and c_json != "{}":
+                c_df = pd.read_json(c_json, orient='records')
+            if g_json and g_json != "{}":
+                g_df = pd.read_json(g_json, orient='records')
+                # Converter data de volta para datetime
+                if "Data" in g_df.columns:
+                    g_df["Data"] = pd.to_datetime(g_df["Data"])
+        except Exception:
+            pass  # Retorna vazio se der erro
+
+    return c_df, g_df
+
+
+# --------------------------------------------------------------------------------
+# 3) VISUAL HELPERS
 # --------------------------------------------------------------------------------
 def process_logo_transparency(image_path):
     if not os.path.exists(image_path):
@@ -158,7 +276,7 @@ def calculate_rsi(data, window=14):
 
 
 # --------------------------------------------------------------------------------
-# 3) Data fetch
+# 4) Data fetch
 # --------------------------------------------------------------------------------
 @st.cache_data(ttl=600)
 def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
@@ -326,7 +444,7 @@ def get_google_news_items(query: str, limit: int = 8) -> list[dict]:
 
 
 # --------------------------------------------------------------------------------
-# NEW: DIALOG FUNCTION (CUSTOM METRICS)
+# DIALOG FUNCTION (CUSTOM METRICS)
 # --------------------------------------------------------------------------------
 @st.dialog("🔍 Raio-X do Ativo")
 def show_asset_details_popup(ativo_selecionado):
@@ -339,7 +457,6 @@ def show_asset_details_popup(ativo_selecionado):
     if info:
         st.markdown(f"### {info.get('longName', ativo_selecionado)}")
 
-        # Helper para criar metrics menores via HTML puro
         def mini_metric(label, value):
             return f"""
             <div style="text-align:center; background:rgba(255,255,255,0.03); border-radius:8px; padding:8px;">
@@ -396,7 +513,7 @@ def show_asset_details_popup(ativo_selecionado):
 
 
 # --------------------------------------------------------------------------------
-# 4) Streamlit config + CSS
+# 5) Streamlit config + CSS
 # --------------------------------------------------------------------------------
 logo_img = process_logo_transparency(LOGO_PATH)
 page_icon = logo_img if logo_img else "🐝"
@@ -407,8 +524,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Inicializar DB
+init_db()
+
 # =========================
-#  CSS NOVO (BEE THEME) — layout only
+#  CSS NOVO (BEE THEME)
 # =========================
 st.markdown(
     """
@@ -448,7 +568,6 @@ st.markdown(
     radial-gradient(circle at 18% 18%, rgba(255,215,0,0.08), transparent 38%),
     radial-gradient(circle at 78% 82%, rgba(93,64,55,0.22), transparent 45%),
     radial-gradient(circle at 55% 35%, rgba(255,255,255,0.03), transparent 40%),
-    /* honeycomb-ish */
     linear-gradient(30deg, rgba(255,215,0,0.03) 12%, transparent 12.5%, transparent 87%, rgba(255,215,0,0.03) 87.5%, rgba(255,215,0,0.03)),
     linear-gradient(150deg, rgba(255,215,0,0.03) 12%, transparent 12.5%, transparent 87%, rgba(255,215,0,0.03) 87.5%, rgba(255,215,0,0.03)),
     linear-gradient(90deg, rgba(255,215,0,0.02) 2%, transparent 2.5%, transparent 97%, rgba(255,215,0,0.02) 97.5%, rgba(255,215,0,0.02)),
@@ -466,7 +585,6 @@ h1, h2, h3, h4{
 }
 p, span, div { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 
-/* Ajuste de espaçamentos gerais */
 div[data-testid="stVerticalBlock"] { gap: 0.40rem !important; }
 
 /* ====== SIDEBAR ====== */
@@ -651,7 +769,7 @@ a.news-card-link{ text-decoration:none; display:block; margin-bottom:10px; }
   border-color: rgba(255,215,0,0.28) !important;
 }
 
-/* botão amarelo (sua classe) */
+/* botão amarelo */
 .yellowbtn button{
   background: linear-gradient(180deg, var(--bee-yellow), #FFC400) !important;
   color: #000 !important;
@@ -716,7 +834,7 @@ div[data-testid="stProgress"] > div > div{
   background: linear-gradient(90deg, #FFC400, var(--bee-yellow)) !important;
 }
 
-/* ====== DATAFRAME / TABLE CONTAINER (mais “card”) ====== */
+/* ====== DATAFRAME / TABLE CONTAINER ====== */
 div[data-testid="stDataFrame"], div[data-testid="stTable"]{
   border-radius: 14px;
   overflow: hidden;
@@ -744,8 +862,15 @@ a[data-testid="stLinkButton"]{
 )
 
 # --------------------------------------------------------------------------------
-# 5) Data model
+# 6) Data model & Session State
 # --------------------------------------------------------------------------------
+if "user_logged_in" not in st.session_state:
+    st.session_state["user_logged_in"] = False
+if "username" not in st.session_state:
+    st.session_state["username"] = ""
+if "user_name_display" not in st.session_state:
+    st.session_state["user_name_display"] = ""
+
 CARTEIRA_COLS = ["Tipo", "Ativo", "Nome", "Qtd", "Preco_Medio", "Moeda", "Obs"]
 GASTOS_COLS = ["Data", "Categoria", "Descricao", "Tipo", "Valor", "Pagamento"]
 
@@ -763,18 +888,14 @@ if "patrimonio_meta" not in st.session_state:
     st.session_state["patrimonio_meta"] = 100000.0
 if "gasto_meta" not in st.session_state:
     st.session_state["gasto_meta"] = 3000.0
-
-# NEW: Bee Light toggle state (layout only)
 if "bee_light" not in st.session_state:
     st.session_state["bee_light"] = False
 
-
-# NEW: Bee Light CSS override (layout only)
+# Bee Light CSS override (layout only)
 if st.session_state.get("bee_light"):
     st.markdown(
         """
         <style>
-        /* ====== BEE LIGHT MODE (mais amarelo) ====== */
         .stApp{
           background:
             radial-gradient(circle at 18% 18%, rgba(255,215,0,0.18), transparent 40%),
@@ -786,44 +907,19 @@ if st.session_state.get("bee_light"):
             #0B0F14;
           background-size: auto, auto, auto, 64px 64px, 64px 64px, 64px 64px, auto;
         }
-
-        section[data-testid="stSidebar"]{
-          border-right: 1px solid rgba(255,215,0,0.22) !important;
-        }
-
-        .bee-card{
-          border: 1px solid rgba(255,215,0,0.14) !important;
-        }
-        .card-title{
-          color: rgba(255,215,0,0.95) !important;
-        }
-
-        .news-card-box{
-          border: 1px solid rgba(255,215,0,0.16) !important;
-        }
-        .news-card-box:hover{
-          border-color: rgba(255,215,0,0.55) !important;
-        }
-
-        .navbtn button{
-          border-color: rgba(255,215,0,0.14) !important;
-        }
-        .navbtn button:hover{
-          border-color: rgba(255,215,0,0.45) !important;
-        }
-
+        section[data-testid="stSidebar"]{ border-right: 1px solid rgba(255,215,0,0.22) !important; }
+        .bee-card{ border: 1px solid rgba(255,215,0,0.14) !important; }
+        .card-title{ color: rgba(255,215,0,0.95) !important; }
+        .news-card-box{ border: 1px solid rgba(255,215,0,0.16) !important; }
+        .news-card-box:hover{ border-color: rgba(255,215,0,0.55) !important; }
+        .navbtn button{ border-color: rgba(255,215,0,0.14) !important; }
+        .navbtn button:hover{ border-color: rgba(255,215,0,0.45) !important; }
         .stTextInput input, .stNumberInput input, .stDateInput input{
           border: 1px solid rgba(255,215,0,0.24) !important;
           box-shadow: 0 0 0 1px rgba(255,215,0,0.06) inset;
         }
-        .stSelectbox > div > div{
-          border: 1px solid rgba(255,215,0,0.24) !important;
-        }
-
-        .stTabs [aria-selected="true"]{
-          background: rgba(255,215,0,0.22) !important;
-          border-color: rgba(255,215,0,0.40) !important;
-        }
+        .stSelectbox > div > div{ border: 1px solid rgba(255,215,0,0.24) !important; }
+        .stTabs [aria-selected="true"]{ background: rgba(255,215,0,0.22) !important; border-color: rgba(255,215,0,0.40) !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -834,19 +930,15 @@ def smart_load_csv(uploaded_file, sep_priority=","):
     uploaded_file.seek(0)
     try:
         df = pd.read_csv(uploaded_file, sep=sep_priority)
-        if len(df.columns) > 1:
-            return df
+        if len(df.columns) > 1: return df
     except Exception:
         pass
-
     uploaded_file.seek(0)
     try:
         df = pd.read_csv(uploaded_file, sep=";" if sep_priority == "," else ",")
-        if len(df.columns) > 1:
-            return df
+        if len(df.columns) > 1: return df
     except Exception:
         pass
-
     uploaded_file.seek(0)
     try:
         df = pd.read_csv(uploaded_file, sep=";", encoding="latin1")
@@ -865,8 +957,7 @@ def atualizar_precos_carteira_memory(df):
     if yf is not None:
         try:
             fx = yf_last_and_prev_close(["BRL=X"])
-            if not fx.empty:
-                usdbrl = float(fx.iloc[0]["last"])
+            if not fx.empty: usdbrl = float(fx.iloc[0]["last"])
         except Exception:
             pass
 
@@ -887,8 +978,7 @@ def atualizar_precos_carteira_memory(df):
             px_map[r["ticker"]] = float(r["last"])
 
     for i, row in df.iterrows():
-        if bool(is_rf.iloc[i]):
-            continue
+        if bool(is_rf.iloc[i]): continue
         df.at[i, "Preco_Atual"] = float(px_map.get(row["Ticker_YF"], 0.0))
 
     for c in ["Qtd", "Preco_Medio"]:
@@ -917,9 +1007,6 @@ def atualizar_precos_carteira_memory(df):
     return df, {"total_brl": total, "pnl_brl": pnl, "pnl_pct": pnl_pct}
 
 
-# --------------------------------------------------------------------------------
-# 6) UI helpers
-# --------------------------------------------------------------------------------
 def nav_btn(label, key_page):
     st.sidebar.markdown("<div class='navbtn'>", unsafe_allow_html=True)
     if st.sidebar.button(label, key=f"NAV_{key_page}", use_container_width=True):
@@ -930,10 +1017,8 @@ def nav_btn(label, key_page):
 
 def kpi_card(title, value, sub="", color=None, compact=False, small=False):
     extra = ""
-    if compact:
-        extra = "kpi-compact"
-    if small:
-        extra = "kpi-small"
+    if compact: extra = "kpi-compact"
+    if small: extra = "kpi-small"
     st.markdown(
         f"""
 <div class="bee-card {extra}" style="{f'border-top: 3px solid {color};' if color else ''}">
@@ -941,9 +1026,7 @@ def kpi_card(title, value, sub="", color=None, compact=False, small=False):
   <div class="kpi">{value}</div>
   <div class="sub">{sub}</div>
 </div>
-""",
-        unsafe_allow_html=True,
-    )
+""", unsafe_allow_html=True)
 
 
 def investidor10_link(ativo: str) -> str:
@@ -954,13 +1037,69 @@ def investidor10_link(ativo: str) -> str:
 
 
 # --------------------------------------------------------------------------------
-# 7) Sidebar
+# LOGIN SYSTEM INTERFACE
 # --------------------------------------------------------------------------------
+if not st.session_state["user_logged_in"]:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        if logo_img:
+            st.image(logo_img, width=150)
+        else:
+            st.markdown("# 🐝 Bee Finanças")
+
+        st.markdown("### Acesso Seguro")
+
+        tab_login, tab_register = st.tabs(["Entrar", "Criar Conta"])
+
+        with tab_login:
+            l_user = st.text_input("Usuário", key="l_user")
+            l_pass = st.text_input("Senha", type="password", key="l_pass")
+            if st.button("Entrar", type="primary", use_container_width=True):
+                name = login_user(l_user, l_pass)
+                if name:
+                    st.session_state["user_logged_in"] = True
+                    st.session_state["username"] = l_user
+                    st.session_state["user_name_display"] = name
+                    # Carregar dados do usuário
+                    c_df, g_df = load_user_data_db(l_user)
+                    st.session_state["carteira_df"] = c_df
+                    st.session_state["gastos_df"] = g_df
+                    if not c_df.empty: st.session_state["wallet_mode"] = True
+                    if not g_df.empty: st.session_state["gastos_mode"] = True
+                    st.rerun()
+                else:
+                    st.error("Usuário ou senha incorretos.")
+
+        with tab_register:
+            r_user = st.text_input("Escolha um Usuário", key="r_user")
+            r_name = st.text_input("Seu Nome", key="r_name")
+            r_pass = st.text_input("Escolha uma Senha", type="password", key="r_pass")
+            if st.button("Criar Conta", use_container_width=True):
+                if r_user and r_pass:
+                    if create_user(r_user, r_pass, r_name):
+                        st.success("Conta criada! Faça login na aba 'Entrar'.")
+                    else:
+                        st.error("Usuário já existe.")
+                else:
+                    st.warning("Preencha todos os campos.")
+
+    st.stop()  # PARA A EXECUÇÃO AQUI SE NÃO ESTIVER LOGADO
+
+# --------------------------------------------------------------------------------
+# MAIN APP (Só executa se logado)
+# --------------------------------------------------------------------------------
+
+# SIDEBAR
 with st.sidebar:
     if logo_img:
         st.image(logo_img, width=280)
     else:
         st.markdown("## 🐝 Bee Finanças")
+
+    st.markdown(
+        f"<div style='font-size:12px; color:gray; margin-bottom:10px'>Olá, <b>{st.session_state['user_name_display']}</b></div>",
+        unsafe_allow_html=True)
 
     st.markdown("<p class='menu-header'>Hub</p>", unsafe_allow_html=True)
     nav_btn("🏠 Home", "🏠 Home")
@@ -1037,27 +1176,27 @@ with st.sidebar:
         else:
             pill("BTC (R$)", "—", None)
 
-        # NEW: Bee Light toggle (layout only)
+        # NEW: Bee Light toggle
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
         st.session_state["bee_light"] = st.toggle(
             "💡 Bee Light (mais amarelo)",
             value=st.session_state["bee_light"]
         )
 
+        if st.button("Sair (Logout)", use_container_width=True):
+            st.session_state["user_logged_in"] = False
+            st.session_state["username"] = ""
+            st.rerun()
+
     except Exception:
         pass
 
-# --------------------------------------------------------------------------------
-# 8) Top bar
-# --------------------------------------------------------------------------------
+# TOP BAR
 c_spacer, c_info = st.columns([6, 2.5])
-
 with c_spacer:
     st.write("")
-
 with c_info:
     c_clock, c_btn = st.columns([2.5, 1], gap="small")
-
     with c_clock:
         now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
         st.markdown(
@@ -1079,7 +1218,6 @@ with c_info:
             """,
             unsafe_allow_html=True
         )
-
     with c_btn:
         if st.button("↻", key="top_refresh", help="Atualizar dados", use_container_width=True):
             st.cache_data.clear()
@@ -1090,10 +1228,10 @@ st.markdown("<hr style='border-color:rgba(255,255,255,0.06); margin-top:10px'>",
 page = st.session_state["page"]
 
 # --------------------------------------------------------------------------------
-# 9) Pages
+# PAGES
 # --------------------------------------------------------------------------------
 if page == "🏠 Home":
-    st.markdown("## 📌 Visão do Mercado")
+    st.markdown(f"## 📌 Visão do Mercado (Olá, {st.session_state['user_name_display']})")
 
     ibov_val = ibov_pct = None
     usd_val = usd_pct = None
@@ -1313,18 +1451,21 @@ elif page == "🔍 Analisar":
             st.error("Ativo não encontrado.")
 
 elif page == "💼 Carteira":
-    st.markdown("## 💼 Carteira 2.0")
+    st.markdown("## 💼 Carteira 2.0 (Multi-User)")
     wallet_active = (not st.session_state["carteira_df"].empty) or st.session_state["wallet_mode"]
 
     if not wallet_active:
         c1, c2 = st.columns(2)
         with c1:
-            uploaded_file = st.file_uploader("Carregar minha_carteira.csv", type=["csv"], key="uploader_start")
+            uploaded_file = st.file_uploader("Importar CSV", type=["csv"], key="uploader_start")
             if uploaded_file:
                 df_loaded = smart_load_csv(uploaded_file)
                 if df_loaded is not None:
                     st.session_state["carteira_df"] = df_loaded
                     st.session_state["wallet_mode"] = True
+                    # Auto-save no DB
+                    save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                                      st.session_state["gastos_df"])
                     st.rerun()
                 else:
                     st.error("Arquivo inválido.")
@@ -1333,6 +1474,8 @@ elif page == "💼 Carteira":
             if st.button("Criar Nova Carteira", use_container_width=True):
                 st.session_state["carteira_df"] = pd.DataFrame(columns=CARTEIRA_COLS)
                 st.session_state["wallet_mode"] = True
+                save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                                  st.session_state["gastos_df"])
                 st.rerun()
     else:
         df = st.session_state["carteira_df"]
@@ -1366,13 +1509,18 @@ elif page == "💼 Carteira":
             if px and not df_calc.empty:
                 g1, g2 = st.columns([1, 2])
                 with g1:
-                    fig_pie = px.pie(df_calc, values='Total_BRL', names='Ativo', hole=0.6,
-                                     color_discrete_sequence=px.colors.sequential.RdBu)
-                    fig_pie.update_layout(margin=dict(l=0, r=0, t=10, b=10), height=200, paper_bgcolor="rgba(0,0,0,0)",
-                                          showlegend=False)
-                    fig_pie.add_annotation(text=f"{len(df_calc)} Ativos", x=0.5, y=0.5, font_size=12, showarrow=False,
-                                           font_color="white")
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                    # Usando Treemap ao inves de Pie
+                    fig_tree = px.treemap(
+                        df_calc,
+                        path=[px.Constant("Carteira"), 'Tipo', 'Ativo'],
+                        values='Total_BRL',
+                        color='PnL_Pct',
+                        color_continuous_scale=['#FF3B30', '#111111', '#00C805'],
+                        color_continuous_midpoint=0
+                    )
+                    fig_tree.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=250, paper_bgcolor="rgba(0,0,0,0)")
+                    st.plotly_chart(fig_tree, use_container_width=True)
+
                 with g2:
                     st.markdown("#### 🔴 Monitor de Rentabilidade")
                     st.caption("Clique na linha para abrir o Pop-up com detalhes")
@@ -1420,21 +1568,25 @@ elif page == "💼 Carteira":
                 key="editor_carteira"
             )
 
-            if st.button("💾 Salvar Alterações", type="primary"):
+            if st.button("💾 Salvar na Nuvem (DB)", type="primary"):
                 st.session_state["carteira_df"] = edited_df
-                st.toast("Carteira atualizada com sucesso!", icon="✅")
+                save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                                  st.session_state["gastos_df"])
+                st.toast("Carteira salva com sucesso!", icon="✅")
                 st.rerun()
 
         st.write("")
         st.download_button(
-            "⬇️ Baixar CSV",
+            "⬇️ Backup Local (CSV)",
             df.to_csv(index=False).encode("utf-8"),
             "minha_carteira.csv",
             "text/csv"
         )
-        if st.button("Sair da Carteira"):
+        if st.button("Limpar Carteira"):
             st.session_state["carteira_df"] = pd.DataFrame(columns=CARTEIRA_COLS)
             st.session_state["wallet_mode"] = False
+            save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                              st.session_state["gastos_df"])
             st.rerun()
 
 elif page == "💸 Controle":
@@ -1444,12 +1596,14 @@ elif page == "💸 Controle":
     if not gastos_active:
         c1, c2 = st.columns(2)
         with c1:
-            uploaded_gastos = st.file_uploader("Carregar meus_gastos.csv", type=["csv"], key="uploader_gastos")
+            uploaded_gastos = st.file_uploader("Importar CSV", type=["csv"], key="uploader_gastos")
             if uploaded_gastos:
                 df_g = smart_load_csv(uploaded_gastos)
                 if df_g is not None:
                     st.session_state["gastos_df"] = df_g
                     st.session_state["gastos_mode"] = True
+                    save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                                      st.session_state["gastos_df"])
                     st.rerun()
                 else:
                     st.error("Arquivo inválido.")
@@ -1457,6 +1611,8 @@ elif page == "💸 Controle":
             if st.button("Criar Planilha de Gastos", use_container_width=True):
                 st.session_state["gastos_df"] = pd.DataFrame(columns=GASTOS_COLS)
                 st.session_state["gastos_mode"] = True
+                save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                                  st.session_state["gastos_df"])
                 st.rerun()
     else:
         df_g = st.session_state["gastos_df"].copy()
@@ -1557,6 +1713,8 @@ elif page == "💸 Controle":
                     }
                     df_g = pd.concat([df_g, pd.DataFrame([new_row])], ignore_index=True)
                     st.session_state["gastos_df"] = df_g
+                    save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                                      st.session_state["gastos_df"])
                     st.toast("Transação salva!", icon="💸")
                     st.rerun()
 
@@ -1573,24 +1731,27 @@ elif page == "💸 Controle":
             height=340,
             key="editor_gastos"
         )
-        if st.button("💾 Salvar Alterações no Extrato"):
+        if st.button("💾 Salvar na Nuvem (DB)", key="save_gastos"):
             st.session_state["gastos_df"] = df_g_edited
+            save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                              st.session_state["gastos_df"])
             st.toast("Extrato atualizado!", icon="✅")
             st.rerun()
 
         st.write("---")
 
-        # FIX: aqui era "df", agora é df_g (pra não dar NameError)
         st.download_button(
-            "⬇️ Baixar meus_gastos.csv",
+            "⬇️ Backup Local (CSV)",
             df_g.to_csv(index=False).encode("utf-8"),
             "meus_gastos.csv",
             "text/csv"
         )
 
-        if st.button("Sair"):
+        if st.button("Limpar Gastos"):
             st.session_state["gastos_df"] = pd.DataFrame(columns=GASTOS_COLS)
             st.session_state["gastos_mode"] = False
+            save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                              st.session_state["gastos_df"])
             st.rerun()
 
 elif page == "🧮 Calculadoras":
@@ -1643,7 +1804,7 @@ elif page == "🧮 Calculadoras":
             st.info(f"1 ano: {fmt_money_brl(total, 2)}")
 
 # --------------------------------------------------------------------------------
-# 10) Footer
+# FOOTER
 # --------------------------------------------------------------------------------
 st.markdown(
     f"""
