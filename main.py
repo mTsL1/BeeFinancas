@@ -357,7 +357,6 @@ def show_asset_details_popup(ativo_selecionado):
         with m2:
             dy_val = info.get('dividendYield', 0)
             if dy_val is None: dy_val = 0
-            # Proteção visual contra numeros gigantes
             fmt_dy = f"{dy_val * 100:.2f}%"
             st.markdown(mini_metric("DY (Yield)", fmt_dy), unsafe_allow_html=True)
 
@@ -765,6 +764,71 @@ if "patrimonio_meta" not in st.session_state:
 if "gasto_meta" not in st.session_state:
     st.session_state["gasto_meta"] = 3000.0
 
+# NEW: Bee Light toggle state (layout only)
+if "bee_light" not in st.session_state:
+    st.session_state["bee_light"] = False
+
+
+# NEW: Bee Light CSS override (layout only)
+if st.session_state.get("bee_light"):
+    st.markdown(
+        """
+        <style>
+        /* ====== BEE LIGHT MODE (mais amarelo) ====== */
+        .stApp{
+          background:
+            radial-gradient(circle at 18% 18%, rgba(255,215,0,0.18), transparent 40%),
+            radial-gradient(circle at 78% 82%, rgba(255,215,0,0.12), transparent 48%),
+            radial-gradient(circle at 55% 35%, rgba(255,255,255,0.04), transparent 45%),
+            linear-gradient(30deg, rgba(255,215,0,0.05) 12%, transparent 12.5%, transparent 87%, rgba(255,215,0,0.05) 87.5%, rgba(255,215,0,0.05)),
+            linear-gradient(150deg, rgba(255,215,0,0.05) 12%, transparent 12.5%, transparent 87%, rgba(255,215,0,0.05) 87.5%, rgba(255,215,0,0.05)),
+            linear-gradient(90deg, rgba(255,215,0,0.03) 2%, transparent 2.5%, transparent 97%, rgba(255,215,0,0.03) 97.5%, rgba(255,215,0,0.03)),
+            #0B0F14;
+          background-size: auto, auto, auto, 64px 64px, 64px 64px, 64px 64px, auto;
+        }
+
+        section[data-testid="stSidebar"]{
+          border-right: 1px solid rgba(255,215,0,0.22) !important;
+        }
+
+        .bee-card{
+          border: 1px solid rgba(255,215,0,0.14) !important;
+        }
+        .card-title{
+          color: rgba(255,215,0,0.95) !important;
+        }
+
+        .news-card-box{
+          border: 1px solid rgba(255,215,0,0.16) !important;
+        }
+        .news-card-box:hover{
+          border-color: rgba(255,215,0,0.55) !important;
+        }
+
+        .navbtn button{
+          border-color: rgba(255,215,0,0.14) !important;
+        }
+        .navbtn button:hover{
+          border-color: rgba(255,215,0,0.45) !important;
+        }
+
+        .stTextInput input, .stNumberInput input, .stDateInput input{
+          border: 1px solid rgba(255,215,0,0.24) !important;
+          box-shadow: 0 0 0 1px rgba(255,215,0,0.06) inset;
+        }
+        .stSelectbox > div > div{
+          border: 1px solid rgba(255,215,0,0.24) !important;
+        }
+
+        .stTabs [aria-selected="true"]{
+          background: rgba(255,215,0,0.22) !important;
+          border-color: rgba(255,215,0,0.40) !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def smart_load_csv(uploaded_file, sep_priority=","):
     uploaded_file.seek(0)
@@ -972,6 +1036,13 @@ with st.sidebar:
                  btcbrl.get("var_pct"))
         else:
             pill("BTC (R$)", "—", None)
+
+        # NEW: Bee Light toggle (layout only)
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        st.session_state["bee_light"] = st.toggle(
+            "💡 Bee Light (mais amarelo)",
+            value=st.session_state["bee_light"]
+        )
 
     except Exception:
         pass
@@ -1214,7 +1285,6 @@ elif page == "🔍 Analisar":
             fig, rsi = get_stock_history_plot(tk_real, period=periodo)
 
             if rsi:
-                rsi_color = "normal"
                 rsi_text = f"{rsi:.1f}"
                 if rsi > 70:
                     rsi_status = "⚠️ Sobrecomprado (Cara?)"
@@ -1309,7 +1379,6 @@ elif page == "💼 Carteira":
 
                     live_df = df_calc[["Ativo", "Qtd", "Preco_Medio", "Preco_Atual_BRL", "PnL_Pct", "Total_BRL"]].copy()
 
-                    # --- INTERACTIVE DATAFRAME SELECTION + POP-UP TRIGGER ---
                     selection = st.dataframe(
                         live_df,
                         column_config={
@@ -1327,13 +1396,11 @@ elif page == "💼 Carteira":
                         selection_mode="single-row"
                     )
 
-                    # Quando seleciona, chama o st.dialog
                     if selection and selection.selection.rows:
                         idx_sel = selection.selection.rows[0]
                         ativo_selecionado = live_df.iloc[idx_sel]["Ativo"]
                         show_asset_details_popup(ativo_selecionado)
 
-        # --- EDIÇÃO DE ATIVOS (FECHADO POR PADRÃO) ---
         st.write("---")
         with st.expander("📝 Adicionar / Editar Ativos", expanded=False):
             st.caption("Edite os valores na tabela abaixo para atualizar sua carteira.")
@@ -1476,7 +1543,7 @@ elif page == "💸 Controle":
 
                 if st.form_submit_button("Salvar"):
                     final_cat = d_cat_input if (
-                                d_cat_select == "➕ Nova (Digitar abaixo)" and d_cat_input) else d_cat_select
+                            d_cat_select == "➕ Nova (Digitar abaixo)" and d_cat_input) else d_cat_select
                     if final_cat == "➕ Nova (Digitar abaixo)":
                         final_cat = "Outros"
 
@@ -1512,12 +1579,15 @@ elif page == "💸 Controle":
             st.rerun()
 
         st.write("---")
+
+        # FIX: aqui era "df", agora é df_g (pra não dar NameError)
         st.download_button(
             "⬇️ Baixar meus_gastos.csv",
             df_g.to_csv(index=False).encode("utf-8"),
             "meus_gastos.csv",
             "text/csv"
         )
+
         if st.button("Sair"):
             st.session_state["gastos_df"] = pd.DataFrame(columns=GASTOS_COLS)
             st.session_state["gastos_mode"] = False
