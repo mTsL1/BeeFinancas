@@ -1,58 +1,58 @@
-# Bee Finanças — Streamlit App (vFINAL)
+# Bee Finanças — Streamlit App (v27.0 FINAL - LAYOUT FIX)
+# Single-file / Portable
 # ---------------------------------------------------------------
-# Arquivo: main.py
-# Requisitos: streamlit, pandas, yfinance, plotly, feedparser, requests, pillow, deep-translator, python-dateutil
+# requirements.txt:
+# streamlit, pandas, yfinance, plotly, feedparser, requests, pillow, deep-translator
 # ---------------------------------------------------------------
 
 import os
-import re
 import math
 import warnings
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+import urllib.parse
 
 import streamlit as st
 import pandas as pd
-import requests
 import feedparser
+import requests
 from PIL import Image
 
 warnings.filterwarnings("ignore")
 
-# =========================
-# CONFIG
-# =========================
-APP_VERSION = "v23.2 (FINAL)"
+APP_VERSION = "v27.0 (FINAL)"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.jpeg")
 
-# IMPORTS opcionais
+# --------------------------------------------------------------------------------
+# 1) IMPORTS (optional)
+# --------------------------------------------------------------------------------
 try:
     import yfinance as yf
-except:
+except Exception:
     yf = None
 
 try:
     import plotly.graph_objects as go
     import plotly.express as px
-except:
+except Exception:
     go = None
     px = None
 
 try:
     from dateutil import parser as dtparser
-except:
+except Exception:
     dtparser = None
 
 try:
     from deep_translator import GoogleTranslator
-except:
+except Exception:
     GoogleTranslator = None
 
 
-# =========================
-# HELPERS VISUAIS / FORMAT
-# =========================
+# --------------------------------------------------------------------------------
+# 2) Helpers
+# --------------------------------------------------------------------------------
 def process_logo_transparency(image_path):
     if not os.path.exists(image_path):
         return None
@@ -68,38 +68,29 @@ def process_logo_transparency(image_path):
                 new_data.append(item)
         img.putdata(new_data)
         return img
-    except:
+    except Exception:
         return None
 
 
-def fmt_br_money(v, prefix="R$"):
+def fmt_ptbr_number(x, decimals=2):
+    """Formata número em padrão pt-BR: milhar '.' e decimal ','."""
     try:
-        v = float(v)
-    except:
+        if x is None:
+            return "—"
+        x = float(x)
+        s = f"{x:,.{decimals}f}"  # 1,234.56
+        s = s.replace(",", "X").replace(".", ",").replace("X", ".")  # 1.234,56
+        return s
+    except Exception:
         return "—"
-    s = f"{v:,.2f}"  # 1,234,567.89
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")  # 1.234.567,89
-    return f"{prefix} {s}"
 
 
-def fmt_br_int(v):
-    try:
-        v = float(v)
-    except:
-        return "—"
-    s = f"{v:,.0f}"
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return s
+def fmt_money_brl(x, decimals=2):
+    return f"R$ {fmt_ptbr_number(x, decimals)}"
 
 
-def fmt_pct(v):
-    try:
-        v = float(v)
-    except:
-        return "—"
-    s = f"{v:+.2f}%"
-    s = s.replace(".", ",")
-    return s
+def fmt_money_usd(x, decimals=0):
+    return f"$ {fmt_ptbr_number(x, decimals)}".replace("$ ", "US$ ")
 
 
 def human_time_ago(dt: datetime) -> str:
@@ -120,7 +111,7 @@ def human_time_ago(dt: datetime) -> str:
             return f"{h}h"
         d = h // 24
         return f"{d}d"
-    except:
+    except Exception:
         return ""
 
 
@@ -141,225 +132,31 @@ def normalize_ticker(ativo: str, tipo: str, moeda: str) -> str:
 
 
 def format_market_cap(x: float) -> str:
-    if not x:
-        return "—"
     try:
+        if not x:
+            return "—"
         x = float(x)
-    except:
+        if x >= 1e12:
+            return f"{x / 1e12:.2f} T"
+        if x >= 1e9:
+            return f"{x / 1e9:.2f} B"
+        if x >= 1e6:
+            return f"{x / 1e6:.2f} M"
+        return f"{x:,.0f}"
+    except Exception:
         return "—"
-    if x >= 1e12:
-        return f"{x/1e12:.2f} T".replace(".", ",")
-    if x >= 1e9:
-        return f"{x/1e9:.2f} B".replace(".", ",")
-    if x >= 1e6:
-        return f"{x/1e6:.2f} M".replace(".", ",")
-    return fmt_br_int(x)
 
 
-# =========================
-# STREAMLIT CONFIG
-# =========================
-logo_img = process_logo_transparency(LOGO_PATH)
-page_icon = logo_img if logo_img else "🐝"
-
-st.set_page_config(
-    page_title="Bee Finanças",
-    page_icon=page_icon,
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# =========================
-# CSS (premium, limpo, menos texto)
-# =========================
-st.markdown(
-    """
-<style>
-.stApp{
-  background:
-    radial-gradient(circle at 12% 10%, rgba(255, 215, 0, 0.06), transparent 35%),
-    radial-gradient(circle at 88% 88%, rgba(89, 0, 179, 0.10), transparent 35%),
-    #0B0F14;
-}
-h1, h2, h3, h4 {
-  color: #FFD700 !important;
-  font-family: 'Inter', sans-serif;
-  font-weight: 900;
-  letter-spacing: -0.02em;
-}
-section[data-testid="stSidebar"]{
-  background: #090C10;
-  border-right: 1px solid rgba(255,255,255,0.06);
-}
-section[data-testid="stSidebar"] img {
-  display: block;
-  margin-left: auto;
-  margin-right: auto;
-  margin-bottom: 10px;
-  object-fit: contain;
-  max-width: 100%;
-}
-
-/* menos espaçamento feio */
-div[data-testid="stVerticalBlock"] { gap: 0.28rem !important; }
-div[data-testid="stSidebarUserContent"] .stButton { margin-bottom: 0px !important; }
-
-/* nav button */
-.navbtn button {
-  width: 100%;
-  background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%) !important;
-  color: #cfcfcf !important;
-  border: 1px solid rgba(255,255,255,0.06) !important;
-  border-radius: 10px !important;
-  padding: 0.55rem 1rem !important;
-  font-weight: 750 !important;
-  font-size: 14px !important;
-  text-align: left !important;
-  height: 44px !important;
-  display: flex !important;
-  align-items: center !important;
-  transition: all 0.18s ease;
-}
-.navbtn button:hover {
-  background: linear-gradient(90deg, rgba(255,215,0,0.10) 0%, rgba(255,215,0,0.02) 100%) !important;
-  border-left: 3px solid #FFD700 !important;
-  transform: translateX(2px);
-  color: #fff !important;
-}
-.menu-header {
-  font-size: 10px;
-  text-transform: uppercase;
-  color: #555;
-  font-weight: 900;
-  letter-spacing: 1px;
-  margin-top: 12px;
-  margin-bottom: 6px;
-  padding-left: 6px;
-}
-
-/* cards */
-.bee-card{
-  background: rgba(255,255,255,0.025);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 18px;
-  padding: 16px;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
-}
-.card-title{
-  color: rgba(255,215,0,0.95);
-  font-weight: 900;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 6px;
-}
-.kpi{
-  color:#fff;
-  font-weight: 900;
-  font-size: 22px; /* menor pra não quebrar */
-  line-height: 1.1;
-}
-.sub{ color: #707070; font-size: 12px; }
-
-/* top refresh - pequeno */
-.iconbtn button{
-  width: 42px !important;
-  height: 38px !important;
-  border-radius: 10px !important;
-  padding: 0px !important;
-  font-weight: 900 !important;
-}
-.iconbtn button:hover{
-  transform: translateY(-1px);
-}
-
-/* market monitor */
-.ticker-pill {
-  background: rgba(255,255,255,0.03);
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 6px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-left: 3px solid #555;
-  transition: 0.12s;
-}
-.ticker-pill:hover { transform: translateX(2px); background: rgba(255,255,255,0.06); }
-.tp-up { border-left-color: #00C805; }
-.tp-down { border-left-color: #FF3B30; }
-.tp-neutral { border-left-color: #FFD700; }
-.tp-name { font-weight: 800; font-size: 12px; color: #ddd; }
-.tp-price { font-weight: 800; font-size: 12px; color: #fff; margin-right: 8px; }
-.tp-pct { font-size: 10px; font-weight: 900; }
-
-/* news card */
-a.news-card-link { text-decoration: none; display:block; margin-bottom: 10px; }
-.news-card-box {
-  background: #161B22;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
-  padding: 14px;
-  transition: all 0.18s ease;
-}
-.news-card-box:hover {
-  border-color: rgba(255,215,0,0.7);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(0,0,0,0.22);
-}
-.nc-title { color:#fff; font-weight: 850; font-size: 14px; line-height: 1.35; margin-bottom: 6px; }
-.nc-meta { color:#8a8a8a; font-size: 12px; display:flex; gap: 8px; align-items:center; }
-.nc-badge { background: rgba(255,215,0,0.14); color:#FFD700; padding:2px 8px; border-radius: 6px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
-
-/* inputs */
-.stTextInput input, .stNumberInput input, .stSelectbox div, .stDateInput input {
-  background: #12171E !important;
-  color: #fff !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
-  border-radius: 12px !important;
-}
-.yellowbtn button{
-  background: #FFD700 !important;
-  color:#000 !important;
-  border: none !important;
-  font-weight: 900 !important;
-  border-radius: 12px !important;
-}
-.yellowbtn button:hover{
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(255,215,0,0.25);
-}
-
-/* esconder textos chatos */
-small, .stCaption { color: rgba(255,255,255,0.35) !important; }
-
-/* footer version */
-.footer {
-  margin-top: 16px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.35);
-  font-size: 12px;
-  display:flex;
-  justify-content: space-between;
-  align-items:center;
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-# =========================
-# CACHE / DATA FETCH
-# =========================
+# --------------------------------------------------------------------------------
+# 3) Data fetch
+# --------------------------------------------------------------------------------
 @st.cache_data(ttl=600)
 def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
     if yf is None or not tickers:
         return pd.DataFrame(columns=["ticker", "last", "prev", "var_pct"])
     try:
         data = yf.download(tickers, period="7d", progress=False, threads=True, group_by="ticker")
-    except:
+    except Exception:
         return pd.DataFrame(columns=["ticker", "last", "prev", "var_pct"])
 
     out = []
@@ -372,71 +169,42 @@ def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
                 elif (t, "Close") in data.columns:
                     s = data[(t, "Close")]
             else:
-                s = data["Close"]
+                # single ticker
+                if "Close" in data.columns:
+                    s = data["Close"]
 
-            if s is not None:
-                s = pd.to_numeric(s, errors="coerce").dropna()
-                if len(s) >= 2:
-                    last = float(s.iloc[-1])
-                    prev = float(s.iloc[-2])
-                    var_pct = ((last - prev) / prev) * 100 if prev else 0.0
-                    out.append({"ticker": t, "last": last, "prev": prev, "var_pct": var_pct})
-        except:
+            if s is None:
+                continue
+
+            s = pd.to_numeric(s, errors="coerce").dropna()
+            if len(s) >= 2:
+                last = float(s.iloc[-1])
+                prev = float(s.iloc[-2])
+                var_pct = ((last - prev) / prev) * 100 if prev else 0.0
+                out.append({"ticker": t, "last": last, "prev": prev, "var_pct": var_pct})
+        except Exception:
             pass
-
     return pd.DataFrame(out)
 
 
-@st.cache_data(ttl=60)
-def binance_prices_btc_brl():
+@st.cache_data(ttl=15)
+def binance_24h(symbol: str) -> dict:
     """
-    BTCBRL e var 24h pela Binance (sem API key).
+    Binance public endpoint: returns lastPrice and priceChangePercent.
+    symbol ex: BTCBRL, BTCUSDT
     """
     try:
         url = "https://api.binance.com/api/v3/ticker/24hr"
-        r = requests.get(url, timeout=4)
+        r = requests.get(url, params={"symbol": symbol}, timeout=3)
         if r.status_code != 200:
-            return None
+            return {}
         j = r.json()
-        # pega BTCBRL e USDTBRL (fallback)
-        btcbrl = next((x for x in j if x.get("symbol") == "BTCBRL"), None)
-        if btcbrl:
-            last = float(btcbrl["lastPrice"])
-            pct = float(btcbrl["priceChangePercent"])
-            return {"price": last, "pct": pct, "source": "binance"}
-        # fallback: BTCUSDT * USDTBRL
-        btcusdt = next((x for x in j if x.get("symbol") == "BTCUSDT"), None)
-        usdtbrl = next((x for x in j if x.get("symbol") == "USDTBRL"), None)
-        if btcusdt and usdtbrl:
-            last = float(btcusdt["lastPrice"]) * float(usdtbrl["lastPrice"])
-            pct = float(btcusdt["priceChangePercent"])
-            return {"price": last, "pct": pct, "source": "binance_calc"}
-    except:
-        pass
-    return None
-
-
-@st.cache_data(ttl=900)
-def get_google_news_items(query: str, limit: int = 6) -> list[dict]:
-    url = f"https://news.google.com/rss/search?q={query}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=5)
-        if resp.status_code != 200:
-            return []
-        feed = feedparser.parse(resp.content)
-        items = []
-        for e in getattr(feed, "entries", [])[:limit]:
-            try:
-                p_dt = dtparser.parse(e.published) if dtparser else datetime.now()
-            except:
-                p_dt = datetime.now()
-            title = getattr(e, "title", "Notícia").rsplit(" - ", 1)[0]
-            source = getattr(e, "source", {}).get("title") or "News"
-            items.append({"title": title, "link": e.link, "source": source, "published_dt": p_dt})
-        return items
-    except:
-        return []
+        return {
+            "last": float(j.get("lastPrice", 0) or 0),
+            "var_pct": float(j.get("priceChangePercent", 0) or 0),
+        }
+    except Exception:
+        return {}
 
 
 @st.cache_data(ttl=1200)
@@ -447,14 +215,15 @@ def yf_info_extended(ticker: str) -> dict:
         tk = yf.Ticker(ticker)
         current_price = 0.0
         try:
-            if hasattr(tk, "fast_info"):
-                current_price = tk.fast_info.last_price
+            if hasattr(tk, "fast_info") and tk.fast_info:
+                current_price = float(tk.fast_info.last_price or 0.0)
             else:
                 h = tk.history(period="1d")
                 if not h.empty:
-                    current_price = h["Close"].iloc[-1]
-        except:
+                    current_price = float(h["Close"].iloc[-1])
+        except Exception:
             pass
+
         inf = tk.info or {}
 
         def safe_get(keys, d="—"):
@@ -467,7 +236,7 @@ def yf_info_extended(ticker: str) -> dict:
         if summary and GoogleTranslator:
             try:
                 summary = GoogleTranslator(source="auto", target="pt").translate(summary)
-            except:
+            except Exception:
                 pass
 
         return {
@@ -480,7 +249,7 @@ def yf_info_extended(ticker: str) -> dict:
             "dividendYield": safe_get(["dividendYield"], None),
             "marketCap": safe_get(["marketCap"], None),
         }
-    except:
+    except Exception:
         return {}
 
 
@@ -513,219 +282,235 @@ def get_stock_history_plot(ticker: str, period="1y"):
             height=320,
         )
         return fig
-    except:
-        return None
-
-
-# =========================
-# YouTube API (Bee TV)
-# =========================
-def get_youtube_key():
-    # Cloud: st.secrets; local: env
-    try:
-        if "YOUTUBE_API_KEY" in st.secrets:
-            return str(st.secrets["YOUTUBE_API_KEY"]).strip()
-    except:
-        pass
-    return os.getenv("YOUTUBE_API_KEY", "").strip()
-
-
-@st.cache_data(ttl=3600)
-def yt_find_channel_id(api_key: str, channel_name: str) -> str | None:
-    """
-    Resolve canal -> channelId
-    """
-    if not api_key:
-        return None
-    try:
-        url = "https://www.googleapis.com/youtube/v3/search"
-        params = {
-            "part": "snippet",
-            "q": channel_name,
-            "type": "channel",
-            "maxResults": 1,
-            "key": api_key,
-        }
-        r = requests.get(url, params=params, timeout=6)
-        if r.status_code != 200:
-            return None
-        j = r.json()
-        items = j.get("items", [])
-        if not items:
-            return None
-        return items[0]["snippet"]["channelId"]
-    except:
+    except Exception:
         return None
 
 
 @st.cache_data(ttl=900)
-def yt_search_videos(api_key: str, query: str, max_results: int = 12, channel_id: str | None = None):
-    """
-    Busca vídeos (search endpoint).
-    """
-    if not api_key:
-        return []
+def get_google_news_items(query: str, limit: int = 8) -> list[dict]:
+    url = f"https://news.google.com/rss/search?q={query}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        url = "https://www.googleapis.com/youtube/v3/search"
-        params = {
-            "part": "snippet",
-            "q": query,
-            "type": "video",
-            "maxResults": max_results,
-            "order": "viewCount",
-            "safeSearch": "none",
-            "key": api_key,
-        }
-        if channel_id:
-            params["channelId"] = channel_id
-        r = requests.get(url, params=params, timeout=8)
-        if r.status_code != 200:
+        resp = requests.get(url, headers=headers, timeout=6)
+        if resp.status_code != 200:
             return []
-        j = r.json()
-        out = []
-        for it in j.get("items", []):
-            vid = it.get("id", {}).get("videoId")
-            sn = it.get("snippet", {})
-            if vid:
-                out.append(
-                    {
-                        "videoId": vid,
-                        "title": sn.get("title", ""),
-                        "channelTitle": sn.get("channelTitle", ""),
-                        "publishedAt": sn.get("publishedAt", ""),
-                        "thumb": (sn.get("thumbnails", {}).get("high", {}) or sn.get("thumbnails", {}).get("medium", {}) or {}).get("url", ""),
-                    }
-                )
-        return out
-    except:
-        return_bal = []
-        return return_bal
+        feed = feedparser.parse(resp.content)
+        items = []
+        for e in getattr(feed, "entries", [])[:limit]:
+            try:
+                p_dt = dtparser.parse(e.published) if dtparser else datetime.now()
+            except Exception:
+                p_dt = datetime.now()
+            title = getattr(e, "title", "Notícia").rsplit(" - ", 1)[0]
+            source = getattr(e, "source", {}).get("title") or "News"
+            items.append({"title": title, "link": e.link, "source": source, "published_dt": p_dt})
+        return items
+    except Exception:
+        return []
 
 
-@st.cache_data(ttl=900)
-def yt_videos_details(api_key: str, video_ids: list[str]):
+# --------------------------------------------------------------------------------
+# 4) Streamlit config + CSS
+# --------------------------------------------------------------------------------
+logo_img = process_logo_transparency(LOGO_PATH)
+page_icon = logo_img if logo_img else "🐝"
+st.set_page_config(
+    page_title="Bee Finanças",
+    page_icon=page_icon,
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
     """
-    details: duration + stats (likes/views)
-    """
-    if not api_key or not video_ids:
-        return {}
-    try:
-        url = "https://www.googleapis.com/youtube/v3/videos"
-        params = {
-            "part": "contentDetails,statistics",
-            "id": ",".join(video_ids),
-            "maxResults": len(video_ids),
-            "key": api_key,
-        }
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code != 200:
-            return {}
-        j = r.json()
-        mp = {}
-        for it in j.get("items", []):
-            vid = it.get("id")
-            cd = it.get("contentDetails", {})
-            stt = it.get("statistics", {})
-            mp[vid] = {
-                "duration": cd.get("duration", "PT0S"),
-                "viewCount": int(stt.get("viewCount", 0) or 0),
-                "likeCount": int(stt.get("likeCount", 0) or 0),
-            }
-        return mp
-    except:
-        return {}
+<style>
+/* --- FUNDO --- */
+.stApp{
+  background:
+    radial-gradient(circle at 15% 15%, rgba(255, 215, 0, 0.05), transparent 35%),
+    radial-gradient(circle at 85% 85%, rgba(89, 0, 179, 0.10), transparent 35%),
+    #0B0F14;
+}
+h1, h2, h3, h4{
+  color:#FFD700 !important;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-weight: 900;
+  letter-spacing:-0.03em;
+}
 
+/* --- SIDEBAR --- */
+section[data-testid="stSidebar"]{
+  background:#090C10;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+section[data-testid="stSidebar"] img{
+  display:block;
+  margin: 0 auto 10px auto;
+  object-fit:contain;
+  max-width:100%;
+}
+.menu-header{
+  font-size:10px;
+  text-transform:uppercase;
+  color:#444;
+  font-weight:900;
+  letter-spacing:1px;
+  margin-top: 10px;
+  margin-bottom: 6px;
+  padding-left: 4px;
+}
 
-def iso8601_duration_to_seconds(dur: str) -> int:
-    # Ex: PT1H2M3S
-    if not dur or not dur.startswith("PT"):
-        return 0
-    h = m = s = 0
-    m1 = re.search(r"(\d+)H", dur)
-    m2 = re.search(r"(\d+)M", dur)
-    m3 = re.search(r"(\d+)S", dur)
-    if m1:
-        h = int(m1.group(1))
-    if m2:
-        m = int(m2.group(1))
-    if m3:
-        s = int(m3.group(1))
-    return h * 3600 + m * 60 + s
+/* reduzir espaçamento geral no sidebar */
+div[data-testid="stSidebarUserContent"] .stButton{ margin-bottom: 4px !important; }
+div[data-testid="stVerticalBlock"] { gap: 0.18rem !important; }
 
+/* NAV BUTTONS compactos */
+.navbtn button{
+  width:100%;
+  background: linear-gradient(90deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%) !important;
+  color:#CFCFCF !important;
+  border:1px solid rgba(255,255,255,0.06) !important;
+  border-radius:10px !important;
+  padding: 0.40rem 0.8rem !important;
+  margin: 0px !important;
+  font-weight:800 !important;
+  font-size: 13px !important;
+  text-align:left !important;
+  transition: all .15s ease;
+  height: 38px !important;
+  display:flex !important;
+  align-items:center !important;
+}
+.navbtn button:hover{
+  background: linear-gradient(90deg, rgba(255,215,0,0.10) 0%, rgba(255,215,0,0.03) 100%) !important;
+  border-left: 3px solid #FFD700 !important;
+  transform: translateX(2px);
+}
 
-def build_bee_tv_results(api_key: str, base_query: str, limit: int = 6):
-    """
-    Estratégia:
-    1) Busca por canal favorito (prioridade) com query "base_query + canal"
-    2) Se faltar, busca geral com base_query
-    3) Filtra: sem shorts (< 90s), remove duplicados
-    4) Se ficar vazio por filtros, relaxa automaticamente
-    """
-    favorites = ["Raul Sena", "Bruno Perini", "Geração de Valor", "Gêmeos Investem", "Primo Pobre"]
+/* CARDS */
+.bee-card{
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  padding: 16px;
+  backdrop-filter: blur(4px);
+}
+.card-title{
+  color:#FFD700;
+  font-weight:900;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  margin-bottom: 6px;
+}
+.kpi{
+  color:#fff;
+  font-weight: 900;
+  font-size: 24px;
+  line-height: 1.05;
+}
+.sub{
+  color:#7A7A7A;
+  font-size:12px;
+  margin-top: 6px;
+}
 
-    # tenta resolver channel IDs
-    fav_ids = []
-    for ch in favorites:
-        cid = yt_find_channel_id(api_key, ch)
-        if cid:
-            fav_ids.append((ch, cid))
+/* KPI compact */
+.kpi-compact .kpi{ font-size: 22px !important; }
+.kpi-small .kpi{ font-size: 20px !important; }
 
-    collected = []
+/* NEWS CARDS */
+a.news-card-link{ text-decoration:none; display:block; margin-bottom:10px; }
+.news-card-box{
+  background:#141A22;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px 14px;
+  transition: all .15s ease;
+}
+.news-card-box:hover{
+  border-color:#FFD700;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+}
+.nc-title{
+  color:#fff;
+  font-weight: 900;
+  font-size: 14px;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+.nc-meta{
+  color:#9A9A9A;
+  font-size: 12px;
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.nc-badge{
+  background: rgba(255,215,0,0.14);
+  color:#FFD700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
 
-    # 1) favoritos primeiro
-    for ch, cid in fav_ids:
-        q = f"{base_query} {ch}".strip()
-        collected += yt_search_videos(api_key, q, max_results=8, channel_id=cid)
+/* MARKET MONITOR */
+.ticker-pill{
+  background: rgba(255,255,255,0.03);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  display:flex;
+  justify-content: space-between;
+  align-items:center;
+  border-left: 3px solid #555;
+}
+.tp-up{ border-left-color:#00C805; }
+.tp-down{ border-left-color:#FF3B30; }
+.tp-name{ font-weight:900; font-size:12px; color:#D7D7D7; }
+.tp-price{ font-weight:900; font-size:12px; color:#FFF; }
+.tp-pct{ font-size:11px; font-weight:900; }
 
-    # 2) completa com busca geral
-    if len(collected) < limit * 3:
-        collected += yt_search_videos(api_key, base_query, max_results=18, channel_id=None)
+/* INPUTS */
+.stTextInput input, .stNumberInput input, .stSelectbox div, .stDateInput input{
+  background:#12171E !important;
+  color:#fff !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  border-radius: 12px !important;
+}
 
-    # remove duplicados por videoId
-    uniq = {}
-    for v in collected:
-        uniq[v["videoId"]] = v
-    vids = list(uniq.values())
+/* botão amarelo */
+.yellowbtn button{
+  background:#FFD700 !important;
+  color:#000 !important;
+  border:none !important;
+  font-weight: 900 !important;
+  border-radius: 12px !important;
+}
+.yellowbtn button:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 10px 25px rgba(255,215,0,0.22);
+}
 
-    # details
-    ids = [v["videoId"] for v in vids]
-    det = yt_videos_details(api_key, ids)
+/* footer */
+.bee-footer{
+  margin-top: 18px;
+  opacity: .55;
+  font-size: 12px;
+  display:flex;
+  justify-content: space-between;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
-    # filtro sem shorts (>= 90s) + preferir vídeos mais longos
-    enriched = []
-    for v in vids:
-        d = det.get(v["videoId"], {})
-        sec = iso8601_duration_to_seconds(d.get("duration", "PT0S"))
-        enriched.append(
-            {
-                **v,
-                "seconds": sec,
-                "views": d.get("viewCount", 0),
-                "likes": d.get("likeCount", 0),
-            }
-        )
-
-    # filtra sem shorts
-    filtered = [x for x in enriched if x["seconds"] >= 90]
-
-    # se ficou pouco, relaxa shorts (só remove < 45s)
-    if len(filtered) < limit:
-        filtered = [x for x in enriched if x["seconds"] >= 45]
-
-    # ordena por views e favoritismo
-    favset = set([ch for ch, _ in fav_ids])
-    def score(x):
-        bonus = 1_000_000_000 if x.get("channelTitle") in favset else 0
-        return bonus + (x.get("views", 0) or 0)
-
-    filtered.sort(key=score, reverse=True)
-
-    return filtered[:limit]
-
-
-# =========================
-# APP STATE / DATA TABLES
-# =========================
+# --------------------------------------------------------------------------------
+# 5) Data model
+# --------------------------------------------------------------------------------
 CARTEIRA_COLS = ["Tipo", "Ativo", "Nome", "Qtd", "Preco_Medio", "Moeda", "Obs"]
 GASTOS_COLS = ["Data", "Categoria", "Descricao", "Tipo", "Valor", "Pagamento"]
 
@@ -733,17 +518,12 @@ if "carteira_df" not in st.session_state:
     st.session_state["carteira_df"] = pd.DataFrame(columns=CARTEIRA_COLS)
 if "gastos_df" not in st.session_state:
     st.session_state["gastos_df"] = pd.DataFrame(columns=GASTOS_COLS)
-
 if "wallet_mode" not in st.session_state:
     st.session_state["wallet_mode"] = False
 if "gastos_mode" not in st.session_state:
     st.session_state["gastos_mode"] = False
-
 if "page" not in st.session_state:
     st.session_state["page"] = "🏠 Home"
-
-if "carteira_selected" not in st.session_state:
-    st.session_state["carteira_selected"] = None
 
 
 def smart_load_csv(uploaded_file, sep_priority=","):
@@ -752,7 +532,7 @@ def smart_load_csv(uploaded_file, sep_priority=","):
         df = pd.read_csv(uploaded_file, sep=sep_priority)
         if len(df.columns) > 1:
             return df
-    except:
+    except Exception:
         pass
 
     uploaded_file.seek(0)
@@ -760,41 +540,40 @@ def smart_load_csv(uploaded_file, sep_priority=","):
         df = pd.read_csv(uploaded_file, sep=";" if sep_priority == "," else ",")
         if len(df.columns) > 1:
             return df
-    except:
+    except Exception:
         pass
 
     uploaded_file.seek(0)
     try:
         df = pd.read_csv(uploaded_file, sep=";", encoding="latin1")
         return df
-    except:
+    except Exception:
         pass
-
     return None
-
-
-@st.cache_data(ttl=600)
-def get_usdbrl() -> float:
-    if yf is None:
-        return 5.80
-    try:
-        return float(yf.Ticker("BRL=X").history(period="1d")["Close"].iloc[-1])
-    except:
-        return 5.80
 
 
 def atualizar_precos_carteira_memory(df):
     df = df.copy()
     if df.empty:
-        return df, {"total_brl": 0, "pnl_brl": 0, "pnl_pct": 0, "usdbrl": 5.80}
+        return df, {"total_brl": 0, "pnl_brl": 0, "pnl_pct": 0}
 
-    usdbrl = get_usdbrl()
+    # câmbio via yahoo (fallback simples)
+    usdbrl = 5.80
+    if yf is not None:
+        try:
+            fx = yf_last_and_prev_close(["BRL=X"])
+            if not fx.empty:
+                usdbrl = float(fx.iloc[0]["last"])
+        except Exception:
+            pass
 
-    df["Ticker_YF"] = df.apply(lambda r: normalize_ticker(str(r["Ativo"]), str(r["Tipo"]), str(r["Moeda"]).upper()), axis=1)
+    df["Ticker_YF"] = df.apply(
+        lambda r: normalize_ticker(str(r["Ativo"]), "Ação", str(r.get("Moeda", "BRL")).upper()),
+        axis=1,
+    )
+
     df["Preco_Atual"] = 0.0
-
-    # Renda fixa: mantém preço
-    is_rf = df["Tipo"].str.contains("Renda Fixa|RF", case=False, na=False)
+    is_rf = df["Tipo"].astype(str).str.contains("Renda Fixa|RF", case=False, na=False)
     df.loc[is_rf, "Preco_Atual"] = df.loc[is_rf, "Preco_Medio"]
 
     tickers = df.loc[~is_rf, "Ticker_YF"].unique().tolist()
@@ -805,7 +584,7 @@ def atualizar_precos_carteira_memory(df):
             px_map[r["ticker"]] = float(r["last"])
 
     for i, row in df.iterrows():
-        if is_rf[i]:
+        if bool(is_rf.iloc[i]):
             continue
         df.at[i, "Preco_Atual"] = float(px_map.get(row["Ticker_YF"], 0.0))
 
@@ -815,7 +594,7 @@ def atualizar_precos_carteira_memory(df):
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
     df["Preco_Atual_BRL"] = df["Preco_Atual"]
-    mask_usd_source = df["Ticker_YF"].str.endswith("-USD")
+    mask_usd_source = df["Ticker_YF"].astype(str).str.endswith("-USD")
     df.loc[mask_usd_source, "Preco_Atual_BRL"] *= usdbrl
 
     mask_user_usd = df["Moeda"].astype(str).str.upper() == "USD"
@@ -827,15 +606,17 @@ def atualizar_precos_carteira_memory(df):
     df["PnL_BRL"] = df["Total_BRL"] - df["Custo_BRL"]
     df["PnL_Pct"] = df.apply(lambda x: (x["PnL_BRL"] / x["Custo_BRL"] * 100) if x["Custo_BRL"] > 0 else 0, axis=1)
 
-    total = df["Total_BRL"].sum()
-    pnl = df["PnL_BRL"].sum()
-    custo = df["Custo_BRL"].sum()
-    pnl_pct = (pnl / custo * 100) if custo > 0 else 0
+    total = float(df["Total_BRL"].sum())
+    pnl = float(df["PnL_BRL"].sum())
+    custo = float(df["Custo_BRL"].sum())
+    pnl_pct = (pnl / custo * 100) if custo > 0 else 0.0
 
-    kpi = {"total_brl": total, "pnl_brl": pnl, "pnl_pct": pnl_pct, "usdbrl": usdbrl}
-    return df, kpi
+    return df, {"total_brl": total, "pnl_brl": pnl, "pnl_pct": pnl_pct}
 
 
+# --------------------------------------------------------------------------------
+# 6) UI helpers
+# --------------------------------------------------------------------------------
 def nav_btn(label, key_page):
     st.sidebar.markdown("<div class='navbtn'>", unsafe_allow_html=True)
     if st.sidebar.button(label, key=f"NAV_{key_page}", use_container_width=True):
@@ -844,10 +625,15 @@ def nav_btn(label, key_page):
     st.sidebar.markdown("</div>", unsafe_allow_html=True)
 
 
-def kpi_card(title, value, sub="", color=None):
+def kpi_card(title, value, sub="", color=None, compact=False, small=False):
+    extra = ""
+    if compact:
+        extra = "kpi-compact"
+    if small:
+        extra = "kpi-small"
     st.markdown(
         f"""
-<div class="bee-card" style="{f'border-top: 3px solid {color};' if color else ''}">
+<div class="bee-card {extra}" style="{f'border-top: 3px solid {color};' if color else ''}">
   <div class="card-title">{title}</div>
   <div class="kpi">{value}</div>
   <div class="sub">{sub}</div>
@@ -857,9 +643,18 @@ def kpi_card(title, value, sub="", color=None):
     )
 
 
-# =========================
-# SIDEBAR
-# =========================
+def investidor10_link(ativo: str) -> str:
+    # melhor esforço: tenta ações / fiis / etfs
+    a = (ativo or "").strip().upper().replace(".SA", "")
+    # ações BR: normalmente tem número
+    if any(ch.isdigit() for ch in a):
+        return f"https://investidor10.com.br/acoes/{a.lower()}/"
+    return f"https://investidor10.com.br/"
+
+
+# --------------------------------------------------------------------------------
+# 7) Sidebar
+# --------------------------------------------------------------------------------
 with st.sidebar:
     if logo_img:
         st.image(logo_img, width=280)
@@ -868,227 +663,239 @@ with st.sidebar:
 
     st.markdown("<p class='menu-header'>Hub</p>", unsafe_allow_html=True)
     nav_btn("🏠 Home", "🏠 Home")
-    nav_btn("📰 Notícias", "📰 News")
+    nav_btn("📰 Notícias", "📰 Notícias")
+
     st.markdown("<p class='menu-header'>Tools</p>", unsafe_allow_html=True)
     nav_btn("🔍 Analisar", "🔍 Analisar")
     nav_btn("💼 Carteira", "💼 Carteira")
     nav_btn("💸 Controle", "💸 Controle")
-    st.markdown("<p class='menu-header'>Learn</p>", unsafe_allow_html=True)
-    nav_btn("🍿 Bee TV", "🍿 Bee TV")
-    nav_btn("🎓 Aprenda", "🎓 Aprenda")
+    nav_btn("🧮 Calculadoras", "🧮 Calculadoras")
 
     st.divider()
 
-    # Market monitor (sem SELIC)
+    # MARKET MONITOR (sem SELIC)
     try:
-        # IBOV + USD via yfinance; BTC em R$ via Binance
-        snap = yf_last_and_prev_close(["^BVSP", "BRL=X", "BTC-USD"])
-        btcbrl = binance_prices_btc_brl()
-
         st.markdown(
             "<div style='font-size:12px; color:#666; font-weight:900; margin-bottom:10px; text-transform:uppercase;'>Market Monitor</div>",
             unsafe_allow_html=True,
         )
 
-        # IBOV
-        if not snap.empty and not snap[snap["ticker"] == "^BVSP"].empty:
-            row = snap[snap["ticker"] == "^BVSP"].iloc[0]
-            cor = "tp-up" if row["var_pct"] >= 0 else "tp-down"
+        # IBOV + USD/BRL via Yahoo
+        ibov_val = ibov_pct = None
+        usd_val = usd_pct = None
+        if yf is not None:
+            snap = yf_last_and_prev_close(["^BVSP", "BRL=X"])
+            if not snap.empty:
+                ib = snap[snap["ticker"] == "^BVSP"]
+                fx = snap[snap["ticker"] == "BRL=X"]
+                if not ib.empty:
+                    ibov_val = float(ib.iloc[0]["last"])
+                    ibov_pct = float(ib.iloc[0]["var_pct"])
+                if not fx.empty:
+                    usd_val = float(fx.iloc[0]["last"])
+                    usd_pct = float(fx.iloc[0]["var_pct"])
+
+        # BTC via Binance (mais confiável p/ BRL)
+        btcusd = binance_24h("BTCUSDT")
+        btcbrl = binance_24h("BTCBRL")
+
+
+        def pill(name, price_text, pct):
+            cor = "tp-up" if (pct is not None and pct >= 0) else "tp-down"
+            color = "#00C805" if (pct is not None and pct >= 0) else "#FF3B30"
+            pct_txt = f"{pct:+.2f}%" if pct is not None else "—"
             st.markdown(
                 f"""
 <div class='ticker-pill {cor}'>
-  <span class='tp-name'>IBOV</span>
-  <div style='display:flex; align-items:center;'>
-    <span class='tp-price'>{fmt_br_int(row["last"])}</span>
-    <span class='tp-pct' style='color:{"#00C805" if row["var_pct"]>=0 else "#FF3B30"};'>{fmt_pct(row["var_pct"])}</span>
+  <span class='tp-name'>{name}</span>
+  <div style='display:flex; align-items:center; gap:10px;'>
+    <span class='tp-price'>{price_text}</span>
+    <span class='tp-pct' style='color:{color};'>{pct_txt}</span>
   </div>
 </div>
 """,
                 unsafe_allow_html=True,
             )
 
-        # USD/BRL
-        if not snap.empty and not snap[snap["ticker"] == "BRL=X"].empty:
-            row = snap[snap["ticker"] == "BRL=X"].iloc[0]
-            cor = "tp-up" if row["var_pct"] >= 0 else "tp-down"
-            st.markdown(
-                f"""
-<div class='ticker-pill {cor}'>
-  <span class='tp-name'>USD</span>
-  <div style='display:flex; align-items:center;'>
-    <span class='tp-price'>{fmt_br_money(row["last"])}</span>
-    <span class='tp-pct' style='color:{"#00C805" if row["var_pct"]>=0 else "#FF3B30"};'>{fmt_pct(row["var_pct"])}</span>
-  </div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
 
-        # BTC USD
-        if not snap.empty and not snap[snap["ticker"] == "BTC-USD"].empty:
-            row = snap[snap["ticker"] == "BTC-USD"].iloc[0]
-            cor = "tp-up" if row["var_pct"] >= 0 else "tp-down"
-            st.markdown(
-                f"""
-<div class='ticker-pill {cor}'>
-  <span class='tp-name'>BTC (US$)</span>
-  <div style='display:flex; align-items:center;'>
-    <span class='tp-price'>$ {fmt_br_int(row["last"])}</span>
-    <span class='tp-pct' style='color:{"#00C805" if row["var_pct"]>=0 else "#FF3B30"};'>{fmt_pct(row["var_pct"])}</span>
-  </div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
+        if ibov_val is not None:
+            pill("IBOV", f"{fmt_ptbr_number(ibov_val, 0)}", ibov_pct)
+        else:
+            pill("IBOV", "—", None)
 
-        # BTC BRL via Binance
+        if usd_val is not None:
+            pill("USD/BRL", f"{fmt_money_brl(usd_val, 2)}", usd_pct)
+        else:
+            pill("USD/BRL", "—", None)
+
+        if btcusd:
+            pill("BTC (US$)", fmt_money_usd(btcusd["last"], 0), btcusd.get("var_pct"))
+        else:
+            pill("BTC (US$)", "—", None)
+
         if btcbrl:
-            cor = "tp-up" if btcbrl["pct"] >= 0 else "tp-down"
-            st.markdown(
-                f"""
-<div class='ticker-pill {cor}'>
-  <span class='tp-name'>BTC (R$)</span>
-  <div style='display:flex; align-items:center;'>
-    <span class='tp-price'>{fmt_br_money(btcbrl["price"])}</span>
-    <span class='tp-pct' style='color:{"#00C805" if btcbrl["pct"]>=0 else "#FF3B30"};'>{fmt_pct(btcbrl["pct"])}</span>
-  </div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-    except:
+            # compacta (R$ muito grande)
+            pill("BTC (R$)", f"R$ {fmt_ptbr_number(btcbrl['last'], 0)}" if btcbrl.get('last') else "—",
+                 btcbrl.get("var_pct"))
+        else:
+            pill("BTC (R$)", "—", None)
+
+    except Exception:
         pass
 
-    # Footer versão
-    st.markdown(
-        f"""
-<div class="footer">
-  <div>Bee Finanças</div>
-  <div>{APP_VERSION}</div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+# --------------------------------------------------------------------------------
+# 8) Top bar (Clock + Refresh)
+# --------------------------------------------------------------------------------
+c_spacer, c_info = st.columns([6, 2.5])
 
+with c_spacer:
+    st.write("")  # spacer
 
-# =========================
-# TOP BAR (botão refresh pequeno)
-# =========================
-top_left, top_right = st.columns([10, 1])
-with top_right:
-    st.markdown("<div class='iconbtn'>", unsafe_allow_html=True)
-    if st.button("↻", help="Atualizar dados"):
-        st.cache_data.clear()
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
+with c_info:
+    # Cria duas sub-colunas: uma pro relogio (maior) e outra pro botao (menor)
+    # gap="small" aproxima os dois elementos
+    c_clock, c_btn = st.columns([2.5, 1], gap="small")
 
-st.markdown("<hr style='border-color:rgba(255,255,255,0.06); margin-top:6px'>", unsafe_allow_html=True)
+    with c_clock:
+        now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+        # Visual do relogio estilo "pill" alinhado
+        st.markdown(
+            f"""
+            <div style='
+                display: flex; 
+                justify-content: center; 
+                align-items: center;
+                height: 38px;
+                border: 1px solid rgba(255,255,255,0.1); 
+                border-radius: 8px; 
+                color: #BDBDBD; 
+                font-size: 13px; 
+                background: rgba(255,255,255,0.03);
+                font-weight: 600;
+            '>
+                🕒 {now_str}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with c_btn:
+        # Botao simples, ocupando a largura da coluninha
+        if st.button("↻", key="top_refresh", help="Atualizar dados", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+st.markdown("<hr style='border-color:rgba(255,255,255,0.06); margin-top:10px'>", unsafe_allow_html=True)
 
 page = st.session_state["page"]
 
-# =========================
-# HOME
-# =========================
+# --------------------------------------------------------------------------------
+# 9) Pages
+# --------------------------------------------------------------------------------
 if page == "🏠 Home":
-    # KPIs
+    st.markdown("## 📌 Visão do Mercado")
+
+    # KPIs horizontais
+    ibov_val = ibov_pct = None
+    usd_val = usd_pct = None
+    if yf is not None:
+        snap = yf_last_and_prev_close(["^BVSP", "BRL=X"])
+        if not snap.empty:
+            ib = snap[snap["ticker"] == "^BVSP"]
+            fx = snap[snap["ticker"] == "BRL=X"]
+            if not ib.empty:
+                ibov_val = float(ib.iloc[0]["last"])
+                ibov_pct = float(ib.iloc[0]["var_pct"])
+            if not fx.empty:
+                usd_val = float(fx.iloc[0]["last"])
+                usd_pct = float(fx.iloc[0]["var_pct"])
+
+    btcusd = binance_24h("BTCUSDT")
+    btcbrl = binance_24h("BTCBRL")
+
     c1, c2, c3, c4 = st.columns(4)
-
-    snap = yf_last_and_prev_close(["^BVSP", "BRL=X", "BTC-USD"])
-    btcbrl = binance_prices_btc_brl()
-
-    ibov = snap[snap["ticker"] == "^BVSP"].iloc[0] if not snap.empty and not snap[snap["ticker"] == "^BVSP"].empty else None
-    usd = snap[snap["ticker"] == "BRL=X"].iloc[0] if not snap.empty and not snap[snap["ticker"] == "BRL=X"].empty else None
-    btcusd = snap[snap["ticker"] == "BTC-USD"].iloc[0] if not snap.empty and not snap[snap["ticker"] == "BTC-USD"].empty else None
-
     with c1:
-        if ibov is not None:
-            kpi_card("IBOV", fmt_br_int(ibov["last"]), f'{fmt_pct(ibov["var_pct"])} (dia)', color="#FFD700")
-        else:
-            kpi_card("IBOV", "—", "")
-
+        val = fmt_ptbr_number(ibov_val, 0) if ibov_val is not None else "—"
+        sub = f"{ibov_pct:+.2f}% (dia)" if ibov_pct is not None else ""
+        kpi_card("IBOV", val, sub, color="#FFD700", compact=True)
     with c2:
-        if usd is not None:
-            kpi_card("USD/BRL", fmt_br_money(usd["last"]), f'{fmt_pct(usd["var_pct"])} (dia)', color="#FFD700")
-        else:
-            kpi_card("USD/BRL", "—", "")
-
+        val = fmt_money_brl(usd_val, 2) if usd_val is not None else "—"
+        sub = f"{usd_pct:+.2f}% (dia)" if usd_pct is not None else ""
+        kpi_card("USD/BRL", val, sub, color="#FFD700", compact=True)
     with c3:
-        if btcusd is not None:
-            kpi_card("BTC (US$)", f'$ {fmt_br_int(btcusd["last"])}', f'{fmt_pct(btcusd["var_pct"])} (dia)', color="#FFD700")
+        if btcusd:
+            val = fmt_money_usd(btcusd["last"], 0)
+            sub = f"{btcusd.get('var_pct', 0):+.2f}% (24h)"
         else:
-            kpi_card("BTC (US$)", "—", "")
-
+            val, sub = "—", ""
+        kpi_card("BTC (US$)", val, sub, color="#FFD700", compact=True)
     with c4:
         if btcbrl:
-            # evita quebrar: sempre money br e já cabe
-            kpi_card("BTC (R$)", fmt_br_money(btcbrl["price"]), f'{fmt_pct(btcbrl["pct"])} (24h)', color="#FFD700")
+            # muito grande -> small
+            val = f"R$ {fmt_ptbr_number(btcbrl['last'], 0)}"
+            sub = f"{btcbrl.get('var_pct', 0):+.2f}% (24h)"
         else:
-            kpi_card("BTC (R$)", "—", "")
+            val, sub = "—", ""
+        kpi_card("BTC (R$)", val, sub, color="#FFD700", small=True)
 
     st.write("")
     st.markdown("### ⚡ Acesso Rápido")
-    st.markdown("<div class='bee-card'>", unsafe_allow_html=True)
+
+    # label não pode ser vazio: coloca "Ticker" e esconde
     quick_ticker = st.text_input(
         "Ticker",
-        placeholder="Ex: PETR4, WEGE3, AAPL...",
+        placeholder="Ex: PETR4, VALE3, IVVB11...",
         label_visibility="collapsed",
     ).upper().strip()
 
     if quick_ticker:
         tk_norm = normalize_ticker(quick_ticker, "Ação", "BRL")
-        if yf is not None:
-            hist = yf_last_and_prev_close([tk_norm])
-            if not hist.empty:
-                last = hist.iloc[0]["last"]
-                var = hist.iloc[0]["var_pct"]
-                cor_txt = "#00C805" if var >= 0 else "#FF3B30"
-                st.markdown(
-                    f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
-                    f"<div style='font-size:22px; font-weight:900; color:#fff;'>{tk_norm.replace('.SA','')}</div>"
-                    f"<div style='font-size:18px; font-weight:900; color:{cor_txt};'>{fmt_br_money(last)} • {fmt_pct(var)}</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+        c_info, c_btn = st.columns([3, 1])
+        with c_info:
+            if yf is not None:
+                hist = yf_last_and_prev_close([tk_norm])
+                if not hist.empty:
+                    last = float(hist.iloc[0]["last"])
+                    var = float(hist.iloc[0]["var_pct"])
+                    cor_txt = "#00C805" if var >= 0 else "#FF3B30"
+                    st.markdown(
+                        f"""
+<div style="margin-top:6px; margin-bottom:6px;">
+  <span style="font-size:26px; font-weight:900; color:#fff;">{tk_norm.replace('.SA', '')}</span>
+  <span style="font-size:22px; font-weight:900; color:{cor_txt}; margin-left:10px;">{fmt_ptbr_number(last, 2)} ({var:+.2f}%)</span>
+</div>
+""",
+                        unsafe_allow_html=True,
+                    )
+        with c_btn:
+            link = investidor10_link(quick_ticker)
+            st.link_button("Abrir no Investidor10", link, use_container_width=True)
 
-                # Investidor10 (não StatusInvest)
-                # Ações: https://investidor10.com.br/acoes/petr4/
-                # FIIs: https://investidor10.com.br/fiis/hglg11/
-                base = quick_ticker.lower()
-                link_i10 = f"https://investidor10.com.br/acoes/{base}/"
-                st.markdown(
-                    f"""<div style="margin-top:10px;">
-<a href="{link_i10}" target="_blank" style="text-decoration:none; font-weight:900; color:#fff; background:#5900b3; padding:10px 14px; border-radius:12px; display:inline-block;">
-🔗 Abrir no Investidor10
-</a></div>""",
-                    unsafe_allow_html=True,
-                )
-
-                if px is not None:
-                    chart_data = yf.Ticker(tk_norm).history(period="1mo")
-                    if not chart_data.empty:
-                        fig_mini = px.line(chart_data, y="Close")
-                        fig_mini.update_layout(
-                            xaxis_visible=False,
-                            yaxis_visible=False,
-                            margin=dict(l=0, r=0, t=10, b=0),
-                            height=70,
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            showlegend=False,
-                        )
-                        st.plotly_chart(fig_mini, use_container_width=True, config={"displayModeBar": False})
-    st.markdown("</div>", unsafe_allow_html=True)
+        if px is not None and yf is not None:
+            try:
+                chart_data = yf.Ticker(tk_norm).history(period="1mo")
+                if not chart_data.empty:
+                    fig_mini = px.line(chart_data, y="Close")
+                    fig_mini.update_layout(
+                        xaxis_visible=False,
+                        yaxis_visible=False,
+                        margin=dict(l=0, r=0, t=5, b=5),
+                        height=70,
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                    )
+                    st.plotly_chart(fig_mini, use_container_width=True, config={"displayModeBar": False})
+            except Exception:
+                pass
 
     st.write("")
-    left, right = st.columns([1, 1.2])
-    with right:
-        st.markdown("### 📰 Notícias")
-        news = get_google_news_items("investimentos+brasil", limit=6)
-        if news:
-            for n in news:
-                ago = human_time_ago(n["published_dt"])
-                st.markdown(
-                    f"""
+    st.markdown("### 📰 Notícias")
+    news = get_google_news_items("investimentos brasil", limit=6)
+    if news:
+        for n in news:
+            ago = human_time_ago(n["published_dt"])
+            st.markdown(
+                f"""
 <a href="{n['link']}" target="_blank" class="news-card-link">
   <div class="news-card-box">
     <div class="nc-title">{n['title']}</div>
@@ -1099,40 +906,71 @@ if page == "🏠 Home":
   </div>
 </a>
 """,
-                    unsafe_allow_html=True,
-                )
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("Sem notícias agora.")
 
-# =========================
-# ANALISAR
-# =========================
+elif page == "📰 Notícias":
+    st.markdown("## 📰 Notícias")
+    q = st.text_input("Buscar", value="investimentos brasil", label_visibility="collapsed")
+    items = get_google_news_items(q, limit=12)
+    if items:
+        for n in items:
+            ago = human_time_ago(n["published_dt"])
+            st.markdown(
+                f"""
+<a href="{n['link']}" target="_blank" class="news-card-link">
+  <div class="news-card-box">
+    <div class="nc-title">{n['title']}</div>
+    <div class="nc-meta">
+      <span class="nc-badge">{n['source']}</span>
+      <span>• {ago}</span>
+    </div>
+  </div>
+</a>
+""",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("Sem notícias agora.")
+
 elif page == "🔍 Analisar":
     st.markdown("## 🔍 Analisar")
     c_s, c_p = st.columns([3, 1])
     with c_s:
-        ticker = st.text_input("Ativo", placeholder="WEGE3").upper().strip()
+        ticker = st.text_input("Ativo", placeholder="WEGE3 / PETR4 / IVVB11 / AAPL",
+                               label_visibility="collapsed").upper().strip()
     with c_p:
         periodo = st.selectbox("Zoom", ["1mo", "6mo", "1y", "5y", "max"], index=2)
 
     if ticker:
         tk_real = normalize_ticker(ticker, "Ação", "BRL")
         info = yf_info_extended(tk_real)
-
         if info:
             st.markdown(f"### {info.get('longName', ticker)}")
+
             m1, m2, m3, m4 = st.columns(4)
             cur_price = info.get("currentPrice", 0.0)
-            m1.metric("Preço", fmt_br_money(cur_price) if cur_price else "—")
+
+            with m1:
+                st.metric("Preço", fmt_money_brl(cur_price, 2) if cur_price else "—")
 
             val_dy = info.get("dividendYield")
-            if val_dy is not None:
-                dy_str = f"{(float(val_dy) * 100):.2f}%".replace(".", ",")
-            else:
-                dy_str = "—"
-            m2.metric("DY", dy_str)
+            with m2:
+                if val_dy and val_dy < 2:
+                    st.metric("DY", f"{val_dy * 100:.2f}%")
+                elif val_dy:
+                    st.metric("DY", f"{val_dy:.2f}%")
+                else:
+                    st.metric("DY", "—")
 
             val_pe = info.get("trailingPE")
-            m3.metric("P/L", (f"{float(val_pe):.2f}".replace(".", ",") if val_pe else "—"))
-            m4.metric("Valor", format_market_cap(info.get("marketCap")))
+            with m3:
+                st.metric("P/L", f"{val_pe:.2f}" if val_pe else "—")
+
+            with m4:
+                st.metric("Market Cap", format_market_cap(info.get("marketCap")))
 
             st.markdown("---")
             fig = get_stock_history_plot(tk_real, period=periodo)
@@ -1141,24 +979,19 @@ elif page == "🔍 Analisar":
             else:
                 st.warning("Sem gráfico.")
 
-            # Resumo (sem textão no topo; só em expander)
-            with st.expander("Resumo"):
+            with st.expander("Resumo (PT-BR)"):
                 st.write(info.get("summary", "—"))
         else:
             st.error("Ativo não encontrado.")
 
-# =========================
-# CARTEIRA (com clique -> popup analisador)
-# =========================
 elif page == "💼 Carteira":
     st.markdown("## 💼 Carteira (Cofre Local)")
-
     wallet_active = (not st.session_state["carteira_df"].empty) or st.session_state["wallet_mode"]
 
     if not wallet_active:
         c1, c2 = st.columns(2)
         with c1:
-            uploaded_file = st.file_uploader("📂 Carregar minha_carteira.csv", type=["csv"], key="uploader_start")
+            uploaded_file = st.file_uploader("Carregar minha_carteira.csv", type=["csv"], key="uploader_start")
             if uploaded_file:
                 df_loaded = smart_load_csv(uploaded_file)
                 if df_loaded is not None:
@@ -1168,12 +1001,11 @@ elif page == "💼 Carteira":
                 else:
                     st.error("Arquivo inválido.")
         with c2:
-            st.success("📝 Começar do Zero")
-            if st.button("🚀 Criar Nova Carteira", use_container_width=True):
+            st.success("Começar do zero")
+            if st.button("Criar Nova Carteira", use_container_width=True):
                 st.session_state["carteira_df"] = pd.DataFrame(columns=CARTEIRA_COLS)
                 st.session_state["wallet_mode"] = True
                 st.rerun()
-
     else:
         df = st.session_state["carteira_df"]
 
@@ -1181,165 +1013,112 @@ elif page == "💼 Carteira":
             f1, f2, f3 = st.columns([1, 1, 1])
             with f1:
                 tipo = st.selectbox("Tipo", ["Ação/ETF", "Cripto", "Renda Fixa"])
-                ativo = st.text_input("Ticker").upper().strip()
+                ativo = st.text_input("Ticker/Nome", label_visibility="collapsed",
+                                      placeholder="Ex: ABEV3 / IVVB11 / BTC").upper().strip()
             with f2:
                 qtd = st.number_input("Qtd", min_value=0.0, step=0.01)
-                preco = st.number_input("Preço Pago", min_value=0.0, step=0.01)
+                preco = st.number_input("Preço Médio", min_value=0.0, step=0.01)
             with f3:
                 moeda = st.selectbox("Moeda", ["BRL", "USD"])
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown("<div class='yellowbtn'>", unsafe_allow_html=True)
-                if st.button("Adicionar"):
-                    if ativo and qtd > 0:
-                        if ativo in df["Ativo"].values:
-                            idx = df[df["Ativo"] == ativo].index[0]
-                            old_q = float(df.at[idx, "Qtd"])
-                            old_pm = float(df.at[idx, "Preco_Medio"])
-                            new_q = old_q + qtd
-                            new_pm = ((old_q * old_pm) + (qtd * preco)) / new_q if new_q > 0 else 0
-                            df.at[idx, "Qtd"] = new_q
-                            df.at[idx, "Preco_Medio"] = new_pm
-                        else:
-                            df = pd.concat(
-                                [
-                                    df,
-                                    pd.DataFrame(
-                                        [
-                                            {
-                                                "Tipo": tipo,
-                                                "Ativo": ativo,
-                                                "Nome": ativo,
-                                                "Qtd": qtd,
-                                                "Preco_Medio": preco,
-                                                "Moeda": moeda,
-                                                "Obs": "",
-                                            }
-                                        ]
-                                    ),
-                                ],
-                                ignore_index=True,
-                            )
-                        st.session_state["carteira_df"] = df
-                        st.rerun()
+                add = st.button("Adicionar", use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-        with st.expander("🗑️ Remover Ativo", expanded=False):
+            if add:
+                if ativo and qtd > 0:
+                    if ativo in df["Ativo"].values:
+                        idx = df[df["Ativo"] == ativo].index[0]
+                        old_q = float(df.at[idx, "Qtd"])
+                        old_pm = float(df.at[idx, "Preco_Medio"])
+                        new_q = old_q + qtd
+                        new_pm = ((old_q * old_pm) + (qtd * preco)) / new_q if new_q > 0 else 0
+                        df.at[idx, "Qtd"] = new_q
+                        df.at[idx, "Preco_Medio"] = new_pm
+                    else:
+                        df = pd.concat(
+                            [
+                                df,
+                                pd.DataFrame(
+                                    [
+                                        {
+                                            "Tipo": tipo,
+                                            "Ativo": ativo,
+                                            "Nome": ativo,
+                                            "Qtd": qtd,
+                                            "Preco_Medio": preco,
+                                            "Moeda": moeda,
+                                            "Obs": "",
+                                        }
+                                    ]
+                                ),
+                            ],
+                            ignore_index=True,
+                        )
+                    st.session_state["carteira_df"] = df
+                    st.rerun()
+
+        with st.expander("🗑️ Remover", expanded=False):
             if not df.empty:
                 ativos_disponiveis = df["Ativo"].unique().tolist()
-                ativo_rm = st.selectbox("Selecione para remover", ativos_disponiveis)
+                ativo_rm = st.selectbox("Selecione", ativos_disponiveis)
                 if st.button(f"Excluir {ativo_rm}"):
                     df = df[df["Ativo"] != ativo_rm]
                     st.session_state["carteira_df"] = df
                     st.rerun()
 
         if not df.empty:
-            df_calc, kpi = atualizar_precos_carteira_memory(df)
+            with st.spinner("Atualizando preços..."):
+                df_calc, kpi = atualizar_precos_carteira_memory(df)
 
             k1, k2, k3 = st.columns(3)
             with k1:
-                kpi_card("Total", fmt_br_money(kpi["total_brl"]), "Patrimônio", color="#FFD700")
+                kpi_card("TOTAL", fmt_money_brl(kpi["total_brl"], 2), "Patrimônio", compact=True)
             with k2:
-                cor = "#00C805" if kpi["pnl_brl"] >= 0 else "#FF3B30"
-                kpi_card("Resultado", fmt_br_money(kpi["pnl_brl"]), fmt_pct(kpi["pnl_pct"]), color=cor)
+                color = "#00C805" if kpi["pnl_brl"] >= 0 else "#FF3B30"
+                kpi_card("RESULTADO", fmt_money_brl(kpi["pnl_brl"], 2), f"{kpi['pnl_pct']:+.2f}%", color=color,
+                         compact=True)
             with k3:
-                kpi_card("Ativos", str(len(df_calc)), "Diversificação", color="#FFD700")
+                kpi_card("ATIVOS", f"{len(df_calc)}", "Diversificação", compact=True)
 
             st.write("")
+            show_df = df_calc[["Tipo", "Ativo", "Qtd", "Preco_Medio", "Preco_Atual_BRL", "Total_BRL", "PnL_Pct"]].copy()
 
-            # tabela clicável (se Streamlit suportar seleção)
-            show_cols = ["Tipo", "Ativo", "Qtd", "Preco_Medio", "Preco_Atual_BRL", "Total_BRL", "PnL_Pct", "Moeda"]
-
-            # arruma exibicao pt-br
-            disp = df_calc[show_cols].copy()
-            disp["Qtd"] = disp["Qtd"].map(lambda x: f"{x:.4f}".replace(".", ",") if isinstance(x, (int, float)) else x)
-            disp["Preco_Medio"] = disp["Preco_Medio"].map(lambda x: fmt_br_money(x))
-            disp["Preco_Atual_BRL"] = disp["Preco_Atual_BRL"].map(lambda x: fmt_br_money(x))
-            disp["Total_BRL"] = disp["Total_BRL"].map(lambda x: fmt_br_money(x))
-            disp["PnL_Pct"] = disp["PnL_Pct"].map(lambda x: fmt_pct(x))
-
-            st.markdown("<div class='bee-card'>", unsafe_allow_html=True)
-            st.markdown("<div class='card-title'>Clique em um ativo para abrir no Analisador</div>", unsafe_allow_html=True)
-
-            # Tenta usar dataframe selection (novas versões)
-            selected_ativo = None
-            try:
-                ev = st.dataframe(
-                    disp,
-                    use_container_width=True,
-                    hide_index=True,
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    height=360,
-                )
-                # ev.selection.rows -> indices selecionados
-                if ev and hasattr(ev, "selection") and ev.selection and ev.selection.rows:
-                    idx = ev.selection.rows[0]
-                    selected_ativo = str(df_calc.iloc[idx]["Ativo"])
-            except:
-                # fallback: selectbox
-                selected_ativo = st.selectbox("Ativo", df_calc["Ativo"].astype(str).tolist())
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            if selected_ativo:
-                st.session_state["carteira_selected"] = selected_ativo
-
-                # Popup/Modal do analisador
-                def render_analyzer_popup(symbol: str):
-                    sym = normalize_ticker(symbol, "Ação", "BRL")
-                    info = yf_info_extended(sym)
-                    st.markdown(f"### {symbol}")
-                    if info:
-                        cols = st.columns(4)
-                        cols[0].metric("Preço", fmt_br_money(info.get("currentPrice", 0.0)))
-                        dy = info.get("dividendYield")
-                        cols[1].metric("DY", (f"{float(dy)*100:.2f}%".replace(".", ",") if dy else "—"))
-                        pe = info.get("trailingPE")
-                        cols[2].metric("P/L", (f"{float(pe):.2f}".replace(".", ",") if pe else "—"))
-                        cols[3].metric("Market Cap", format_market_cap(info.get("marketCap")))
-                        fig = get_stock_history_plot(sym, period="1y")
-                        if fig:
-                            st.plotly_chart(fig, use_container_width=True)
-                        with st.expander("Resumo"):
-                            st.write(info.get("summary", "—"))
-                    else:
-                        st.info("Sem dados para este ativo.")
-
-                    # link investidor10
-                    base = symbol.lower()
-                    link_i10 = f"https://investidor10.com.br/acoes/{base}/"
-                    st.link_button("Abrir no Investidor10", link_i10)
-
-                try:
-                    @st.dialog("Analisador")
-                    def analyzer_dialog():
-                        render_analyzer_popup(st.session_state["carteira_selected"])
-
-                    if st.button("Abrir Analisador", use_container_width=False):
-                        analyzer_dialog()
-                except:
-                    with st.expander("Analisador (abrir/fechar)", expanded=False):
-                        render_analyzer_popup(st.session_state["carteira_selected"])
+            st.dataframe(
+                show_df.style.format(
+                    {
+                        "Qtd": "{:.4f}",
+                        "Preco_Medio": "R$ {:.2f}",
+                        "Preco_Atual_BRL": "R$ {:.2f}",
+                        "Total_BRL": "R$ {:.2f}",
+                        "PnL_Pct": "{:+.2f}%",
+                    }
+                ),
+                use_container_width=True,
+                height=420,
+            )
 
         st.write("---")
-        st.download_button("⬇️ Baixar CSV", df.to_csv(index=False).encode("utf-8"), "minha_carteira.csv", "text/csv", type="primary")
+        st.download_button(
+            "⬇️ Baixar CSV",
+            df.to_csv(index=False).encode("utf-8"),
+            "minha_carteira.csv",
+            "text/csv",
+            type="primary",
+        )
         if st.button("Sair"):
             st.session_state["carteira_df"] = pd.DataFrame(columns=CARTEIRA_COLS)
             st.session_state["wallet_mode"] = False
             st.rerun()
 
-# =========================
-# CONTROLE DE GASTOS (restaurado)
-# =========================
 elif page == "💸 Controle":
     st.markdown("## 💸 Controle de Gastos")
-
     gastos_active = (not st.session_state["gastos_df"].empty) or st.session_state["gastos_mode"]
 
     if not gastos_active:
         c1, c2 = st.columns(2)
         with c1:
-            uploaded_gastos = st.file_uploader("📂 Carregar meus_gastos.csv", type=["csv"], key="uploader_gastos")
+            uploaded_gastos = st.file_uploader("Carregar meus_gastos.csv", type=["csv"], key="uploader_gastos")
             if uploaded_gastos:
                 df_g = smart_load_csv(uploaded_gastos)
                 if df_g is not None:
@@ -1349,7 +1128,7 @@ elif page == "💸 Controle":
                 else:
                     st.error("Arquivo inválido.")
         with c2:
-            if st.button("📝 Criar Planilha de Gastos", use_container_width=True):
+            if st.button("Criar Planilha de Gastos", use_container_width=True):
                 st.session_state["gastos_df"] = pd.DataFrame(columns=GASTOS_COLS)
                 st.session_state["gastos_mode"] = True
                 st.rerun()
@@ -1364,51 +1143,51 @@ elif page == "💸 Controle":
             meses_disp = [today.strftime("%Y-%m")]
 
         mes_atual_str = today.strftime("%Y-%m")
-        idx_mes = len(meses_disp) - 1
-        if mes_atual_str in meses_disp:
-            idx_mes = meses_disp.index(mes_atual_str)
+        idx_mes = meses_disp.index(mes_atual_str) if mes_atual_str in meses_disp else (len(meses_disp) - 1)
 
         col_sel, _ = st.columns([1, 3])
         with col_sel:
             mes_selecionado = st.selectbox("Mês", meses_disp, index=idx_mes)
 
         mask_mes = df_g["Data"].dt.strftime("%Y-%m") == mes_selecionado
-        df_filtered = df_g[mask_mes].copy()
+        df_filtered = df_g[mask_mes]
 
-        # valores
-        df_filtered["Valor"] = pd.to_numeric(df_filtered["Valor"], errors="coerce").fillna(0)
-        total_ent = df_filtered[df_filtered["Tipo"] == "Entrada"]["Valor"].sum()
-        total_sai = df_filtered[df_filtered["Tipo"] == "Saída"]["Valor"].sum()
+        total_ent = float(df_filtered[df_filtered["Tipo"] == "Entrada"]["Valor"].sum())
+        total_sai = float(df_filtered[df_filtered["Tipo"] == "Saída"]["Valor"].sum())
         saldo = total_ent - total_sai
 
         k1, k2, k3 = st.columns(3)
-        k1.metric("Receitas", fmt_br_money(total_ent))
-        k2.metric("Despesas", fmt_br_money(total_sai))
-        k3.metric("Saldo", fmt_br_money(saldo))
+        with k1:
+            st.metric("Receitas", fmt_money_brl(total_ent, 2))
+        with k2:
+            st.metric("Despesas", fmt_money_brl(total_sai, 2))
+        with k3:
+            st.metric("Saldo", fmt_money_brl(saldo, 2))
 
         st.write("---")
 
         with st.expander("➕ Nova Transação", expanded=True):
             with st.form("form_gastos", clear_on_submit=True):
                 c1, c2, c3, c4 = st.columns(4)
-                d_data = c1.date_input("Data", value=today.date())
+                d_data = c1.date_input("Data", value=today)
                 default_cats = ["Moradia", "Alimentação", "Transporte", "Lazer", "Investimento", "Salário", "Outros"]
                 existing_cats = df_g["Categoria"].dropna().unique().tolist() if not df_g.empty else []
                 all_cats = sorted(list(set(default_cats + existing_cats)))
-                all_cats.append("➕ Nova (digitar)")
+                all_cats.append("➕ Nova (Digitar abaixo)")
 
                 d_cat_select = c2.selectbox("Categoria", all_cats)
-                d_cat_input = c2.text_input("Nova categoria", placeholder="Ex: Pet")
-                d_desc = c3.text_input("Descrição", placeholder="Ex: Uber / Mercado")
+                d_cat_input = c2.text_input("Nova Categoria", placeholder="Ex: Pet")
+                d_desc = c3.text_input("Descrição", placeholder="Ex: Supermercado")
                 d_tipo = c4.selectbox("Tipo", ["Saída", "Entrada"])
 
                 c5, c6 = st.columns(2)
-                d_val = c5.number_input("Valor", min_value=0.0, step=10.0)
+                d_val = c5.number_input("Valor (R$)", min_value=0.0, step=10.0)
                 d_pag = c6.selectbox("Pagamento", ["Pix", "Crédito", "Débito", "Dinheiro"])
 
                 if st.form_submit_button("Salvar"):
-                    final_cat = d_cat_input if d_cat_select == "➕ Nova (digitar)" and d_cat_input else d_cat_select
-                    if final_cat == "➕ Nova (digitar)":
+                    final_cat = d_cat_input if (
+                                d_cat_select == "➕ Nova (Digitar abaixo)" and d_cat_input) else d_cat_select
+                    if final_cat == "➕ Nova (Digitar abaixo)":
                         final_cat = "Outros"
 
                     new_row = {
@@ -1423,137 +1202,101 @@ elif page == "💸 Controle":
                     st.session_state["gastos_df"] = df_g
                     st.rerun()
 
-        # Charts + extrato
         c_chart, c_table = st.columns([1, 2])
         with c_chart:
-            if px is not None and not df_filtered.empty and total_sai > 0:
+            if px is not None and (not df_filtered.empty) and total_sai > 0:
                 df_pie = df_filtered[df_filtered["Tipo"] == "Saída"].groupby("Categoria")["Valor"].sum().reset_index()
                 fig = px.pie(df_pie, values="Valor", names="Categoria", hole=0.6)
-                fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=280, paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
+                fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=260, paper_bgcolor="rgba(0,0,0,0)",
+                                  showlegend=False)
                 st.plotly_chart(fig, use_container_width=True)
-            else:
+            elif df_filtered.empty:
                 st.info("Sem dados no mês.")
 
         with c_table:
-            # mostra tabela
-            df_show = df_g.copy()
-            df_show["Data"] = pd.to_datetime(df_show["Data"], errors="coerce")
-            df_show = df_show.sort_values("Data", ascending=False)
-
-            st.dataframe(df_show, use_container_width=True, height=340)
+            st.markdown("##### Extrato")
+            df_g_edited = st.data_editor(
+                df_g,
+                num_rows="dynamic",
+                column_config={
+                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                    "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
+                },
+                use_container_width=True,
+                height=340,
+            )
+            if st.button("Salvar alterações"):
+                st.session_state["gastos_df"] = df_g_edited
+                st.rerun()
 
         st.write("---")
-        st.download_button("⬇️ Baixar meus_gastos.csv", df_g.to_csv(index=False).encode("utf-8"), "meus_gastos.csv", "text/csv", type="primary")
+        st.download_button(
+            "⬇️ Baixar meus_gastos.csv",
+            df_g.to_csv(index=False).encode("utf-8"),
+            "meus_gastos.csv",
+            "text/csv",
+            type="primary",
+        )
         if st.button("Sair"):
             st.session_state["gastos_df"] = pd.DataFrame(columns=GASTOS_COLS)
             st.session_state["gastos_mode"] = False
             st.rerun()
 
-# =========================
-# NEWS (feed)
-# =========================
-elif page == "📰 News":
-    st.markdown("## 📰 Notícias")
-    items = get_google_news_items("investimentos+brasil", limit=10)
-    for n in items:
-        ago = human_time_ago(n["published_dt"])
-        st.markdown(
-            f"""
-<a href="{n['link']}" target="_blank" class="news-card-link">
-  <div class="news-card-box">
-    <div class="nc-title">{n['title']}</div>
-    <div class="nc-meta"><span class="nc-badge">{n['source']}</span><span>• {ago}</span></div>
-  </div>
-</a>
-""",
-            unsafe_allow_html=True,
-        )
+elif page == "🧮 Calculadoras":
+    st.markdown("## 🧮 Calculadoras")
+    tabs = st.tabs(["Juros", "Alugar/Financiar", "Milhão", "Renda Fixa"])
 
-# =========================
-# BEE TV (YouTube)
-# =========================
-elif page == "🍿 Bee TV":
-    st.markdown("## 🍿 Bee TV")
+    with tabs[0]:
+        vp = st.number_input("Valor inicial", 1000.0)
+        pmt = st.number_input("Aporte mensal", 500.0)
+        taxa = st.number_input("Taxa anual (%)", 10.0)
+        anos = st.slider("Anos", 1, 50, 10)
+        if st.button("Calcular"):
+            r = (taxa / 100) / 12
+            n = anos * 12
+            total = vp * (1 + r) ** n + pmt * (((1 + r) ** n - 1) / r) if r > 0 else vp + pmt * n
+            st.success(f"Total: {fmt_money_brl(total, 2)}")
 
-    api_key = get_youtube_key()
+    with tabs[1]:
+        c1, c2 = st.columns(2)
+        with c1:
+            valor_imovel = st.number_input("Valor do imóvel", 500000.0)
+            aluguel = st.number_input("Aluguel mensal", 2500.0)
+        with c2:
+            taxa_fin = st.number_input("Taxa financiamento (% a.a.)", 9.5)
+            taxa_inv = st.number_input("Rentabilidade invest (% a.a.)", 11.0)
 
-    # UI limpa: só campo de busca
-    query = st.text_input("Pesquisar", value="investimentos", label_visibility="visible")
+        if st.button("Simular"):
+            custo_fin = valor_imovel * (1 + (taxa_fin / 100) * 1.5)
+            pot_inv = (valor_imovel * 0.20) * (1 + (taxa_inv / 100)) ** 30
+            st.warning(f"Custo financiamento (estimado): {fmt_money_brl(custo_fin, 2)}")
+            st.success(f"Potencial investindo 20% por 30 anos: {fmt_money_brl(pot_inv, 2)}")
 
-    # botão discreto no topo já existe (↻). Aqui não precisa outro.
+    with tabs[2]:
+        c1, c2 = st.columns(2)
+        invest_mensal = c1.number_input("Aporte mensal", 2000.0)
+        taxa_anual = c2.number_input("Rentabilidade anual (%)", 10.0)
+        if st.button("Tempo p/ 1 milhão"):
+            r = (taxa_anual / 100) / 12
+            if invest_mensal <= 0 or r <= 0:
+                st.info("Informe aporte e taxa > 0.")
+            else:
+                n = math.log((1_000_000 * r) / invest_mensal + 1) / math.log(1 + r)
+                st.success(f"Tempo: {n / 12:.1f} anos")
 
-    if not api_key:
-        st.warning("Bee TV precisa de YOUTUBE_API_KEY no Streamlit Cloud (Secrets) ou no seu PC (env).")
-    else:
-        # busca e mostra 6 vídeos
-        vids = build_bee_tv_results(api_key, query.strip(), limit=6)
+    with tabs[3]:
+        val = st.number_input("Valor (R$)", 1000.0)
+        cdi = st.number_input("CDI (% a.a.)", 13.0)
+        if st.button("Retorno 1 ano"):
+            total = val * (1 + cdi / 100)
+            st.info(f"1 ano: {fmt_money_brl(total, 2)}")
 
-        if not vids:
-            st.info("Sem vídeos agora. Tenta outro termo.")
-        else:
-            cols = st.columns(3)
-            for i, v in enumerate(vids):
-                with cols[i % 3]:
-                    st.video(f"https://www.youtube.com/watch?v={v['videoId']}")
-                    # sem textão, só título pequeno
-                    st.caption(v["title"])
-
-# =========================
-# APRENDA (restaurado livros + vídeos)
-# =========================
-elif page == "🎓 Aprenda":
-    st.markdown("## 🎓 Educação")
-    tab_videos, tab_lib = st.tabs(["📺 Vídeos", "📚 Biblioteca"])
-
-    with tab_videos:
-        videos_aprenda = [
-            ("Começando do Zero (Raul Sena)", "https://www.youtube.com/watch?v=bx-sTOSteRA"),
-            ("Investir com Pouco (Bruno Perini)", "https://www.youtube.com/watch?v=J25ZMPx7J1s"),
-            ("A Virada Financeira (Primo Pobre)", "https://www.youtube.com/watch?v=geE3TUzHFTI"),
-            ("Minha História (Bruno Perini)", "https://www.youtube.com/watch?v=HYe9tSqSDA0"),
-        ]
-        for i in range(0, len(videos_aprenda), 2):
-            c1, c2 = st.columns(2)
-            with c1:
-                st.video(videos_aprenda[i][1])
-                st.caption(videos_aprenda[i][0])
-            with c2:
-                if i + 1 < len(videos_aprenda):
-                    st.video(videos_aprenda[i + 1][1])
-                    st.caption(videos_aprenda[i + 1][0])
-
-    with tab_lib:
-        books = [
-            {"title": "Os Segredos da Mente Milionária", "author": "T. Harv Eker", "link": "https://amzn.to/3ueEorO"},
-            {"title": "Pai Rico, Pai Pobre", "author": "Robert T. Kiyosaki", "link": "https://amzn.to/3SDPqAb"},
-            {"title": "O Homem Mais Rico da Babilônia", "author": "George S. Clason", "link": "https://amzn.to/48b6i9P"},
-            {"title": "Faça Fortuna com Ações", "author": "Décio Bazin", "link": "https://amzn.to/4cfPs8q"},
-            {"title": "O Investidor Inteligente", "author": "Benjamin Graham", "link": "https://amzn.to/3Us6VVL"},
-            {"title": "Ações Comuns Lucros Extraordinários", "author": "Philip A. Fisher", "link": "https://amzn.to/3Une9tZ"},
-            {"title": "O Rei dos Dividendos", "author": "Luiz Barsi Filho", "author2": "Luiz Barsi Filho", "link": "https://amzn.to/4meVoUQ"},
-            {"title": "A Lógica do Cisne Negro", "author": "Nassim Taleb", "link": "https://amzn.to/42nk7gf"},
-            {"title": "Princípios", "author": "Ray Dalio", "link": "https://amzn.to/3HL1fOI"},
-        ]
-
-        for b in books:
-            with st.container():
-                c_icon, c_info, c_btn = st.columns([0.4, 3, 1])
-                with c_icon:
-                    st.markdown("📘")
-                with c_info:
-                    st.markdown(f"**{b['title']}**")
-                    st.caption(f"Autor: {b.get('author','—')}")
-                with c_btn:
-                    st.link_button("Comprar", b["link"])
-                st.markdown("---")
-
-else:
-    st.write("")
-
-# footer versão no fim da página também (discreto)
+# --------------------------------------------------------------------------------
+# 10) Footer (versão)
+# --------------------------------------------------------------------------------
 st.markdown(
     f"""
-<div class="footer">
+<div class="bee-footer">
   <div>Bee Finanças</div>
   <div>{APP_VERSION}</div>
 </div>

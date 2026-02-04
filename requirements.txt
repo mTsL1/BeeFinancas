@@ -5,5 +5,4 @@ plotly
 feedparser
 requests
 pillow
-deep-translator
 python-dateutil
