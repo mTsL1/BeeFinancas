@@ -1,8 +1,15 @@
-# Bee Finanças — Streamlit App (v33.1 FIXED - LOGO & DATA FETCH)
-# Single-file / Portable / Login System included
+# Bee Finanças — Streamlit App (v34.4 - WALLET QUICK ADD FORM)
+# Single-file / Portable / Login System / Daily Wallet Variation
 # ---------------------------------------------------------------
 # requirements.txt:
-# streamlit, pandas, yfinance, plotly, feedparser, requests, pillow, deep-translator
+# streamlit
+# pandas
+# yfinance
+# plotly
+# feedparser
+# requests
+# Pillow
+# deep-translator
 # ---------------------------------------------------------------
 
 import os
@@ -20,16 +27,20 @@ import feedparser
 import requests
 from PIL import Image
 
+# Ignorar warnings de bibliotecas para não sujar a interface
 warnings.filterwarnings("ignore")
 
-APP_VERSION = "v33.1 (FIXED DATA)"
+# --------------------------------------------------------------------------------
+# CONFIGURAÇÕES GERAIS E CONSTANTES
+# --------------------------------------------------------------------------------
+APP_VERSION = "v34.4 (QUICK ADD)"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.jpeg")
 DB_FILE = "bee_database.db"
 
 # --------------------------------------------------------------------------------
-# 1) IMPORTS (SAFE)
+# 1) IMPORTAÇÕES SEGURAS (SAFE IMPORTS)
 # --------------------------------------------------------------------------------
 try:
     import yfinance as yf
@@ -55,13 +66,13 @@ except Exception:
 
 
 # --------------------------------------------------------------------------------
-# 2) DATABASE & AUTH HELPERS
+# 2) GERENCIAMENTO DE BANCO DE DADOS E AUTENTICAÇÃO
 # --------------------------------------------------------------------------------
+
 def init_db():
     """Inicializa o banco de dados SQLite local."""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # Tabela de usuários
     c.execute('''
               CREATE TABLE IF NOT EXISTS users
               (
@@ -75,7 +86,6 @@ def init_db():
                   TEXT
               )
               ''')
-    # Tabela de dados (Carteira e Gastos em JSON para flexibilidade)
     c.execute('''
               CREATE TABLE IF NOT EXISTS user_data
               (
@@ -103,7 +113,6 @@ def create_user(username, password, name):
     try:
         c.execute('INSERT INTO users (username, password, name) VALUES (?, ?, ?)',
                   (username, hash_password(password), name))
-        # Cria entrada vazia na tabela de dados
         c.execute('INSERT INTO user_data (username, carteira_json, gastos_json) VALUES (?, ?, ?)',
                   (username, "{}", "{}"))
         conn.commit()
@@ -124,14 +133,41 @@ def login_user(username, password):
     return data[0] if data else None
 
 
+def update_password_db(username, old_pass, new_pass):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT password FROM users WHERE username = ?', (username,))
+    stored = c.fetchone()
+    if stored and stored[0] == hash_password(old_pass):
+        c.execute('UPDATE users SET password = ? WHERE username = ?',
+                  (hash_password(new_pass), username))
+        conn.commit()
+        conn.close()
+        return True
+    conn.close()
+    return False
+
+
+def delete_user_db(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM users WHERE username = ?", (username,))
+    c.execute("DELETE FROM user_data WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
+
+
 def save_user_data_db(username, carteira_df, gastos_df):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-
-    # Converter DataFrames para JSON string
-    c_json = carteira_df.to_json(orient='records', date_format='iso') if not carteira_df.empty else "{}"
-    g_json = gastos_df.to_json(orient='records', date_format='iso') if not gastos_df.empty else "{}"
-
+    if not carteira_df.empty:
+        c_json = carteira_df.to_json(orient='records', date_format='iso')
+    else:
+        c_json = "{}"
+    if not gastos_df.empty:
+        g_json = gastos_df.to_json(orient='records', date_format='iso')
+    else:
+        g_json = "{}"
     c.execute('''
               INSERT INTO user_data (username, carteira_json, gastos_json)
               VALUES (?, ?, ?) ON CONFLICT(username) 
@@ -148,10 +184,8 @@ def load_user_data_db(username):
     c.execute('SELECT carteira_json, gastos_json FROM user_data WHERE username = ?', (username,))
     data = c.fetchone()
     conn.close()
-
     c_df = pd.DataFrame(columns=["Tipo", "Ativo", "Nome", "Qtd", "Preco_Medio", "Moeda", "Obs"])
     g_df = pd.DataFrame(columns=["Data", "Categoria", "Descricao", "Tipo", "Valor", "Pagamento"])
-
     if data:
         c_json, g_json = data
         try:
@@ -159,18 +193,17 @@ def load_user_data_db(username):
                 c_df = pd.read_json(c_json, orient='records')
             if g_json and g_json != "{}":
                 g_df = pd.read_json(g_json, orient='records')
-                # Converter data de volta para datetime
                 if "Data" in g_df.columns:
                     g_df["Data"] = pd.to_datetime(g_df["Data"])
         except Exception:
-            pass  # Retorna vazio se der erro
-
+            pass
     return c_df, g_df
 
 
 # --------------------------------------------------------------------------------
-# 3) VISUAL HELPERS
+# 3) UTILITÁRIOS VISUAIS E DE DADOS
 # --------------------------------------------------------------------------------
+
 def process_logo_transparency(image_path):
     if not os.path.exists(image_path):
         return None
@@ -191,8 +224,7 @@ def process_logo_transparency(image_path):
 
 def fmt_ptbr_number(x, decimals=2):
     try:
-        if x is None:
-            return "—"
+        if x is None: return "—"
         x = float(x)
         s = f"{x:,.{decimals}f}"
         s = s.replace(",", "X").replace(".", ",").replace("X", ".")
@@ -210,21 +242,16 @@ def fmt_money_usd(x, decimals=0):
 
 
 def human_time_ago(dt: datetime) -> str:
-    if not dt:
-        return ""
+    if not dt: return ""
     try:
         now = datetime.now(timezone.utc)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+        if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
         sec = int((now - dt).total_seconds())
-        if sec < 60:
-            return "agora"
+        if sec < 60: return "agora"
         m = sec // 60
-        if m < 60:
-            return f"{m}m"
+        if m < 60: return f"{m}m"
         h = m // 60
-        if h < 24:
-            return f"{h}h"
+        if h < 24: return f"{h}h"
         d = h // 24
         return f"{d}d"
     except Exception:
@@ -232,43 +259,25 @@ def human_time_ago(dt: datetime) -> str:
 
 
 def normalize_ticker(ativo: str, tipo: str, moeda: str) -> str:
-    # Remove espaços e joga pra maiusculo
     a = (ativo or "").strip().upper()
-    if not a:
-        return ""
-
-    # Se já tem .SA ou extensões globais, mantém
-    if a.endswith(".SA") or a.endswith("-USD") or a.endswith("=X") or a.startswith("^"):
-        return a
-
-    # Cripto costuma ter hífen na busca do YF (ex: BTC-USD)
-    if tipo == "Cripto":
+    if not a: return ""
+    if a.endswith(".SA") or a.endswith("-USD") or a.endswith("=X") or a.startswith("^"): return a
+    if tipo == "Cripto" or a in ["BTC", "ETH", "SOL", "DOGE", "ADA", "XRP", "DOT", "MATIC"]:
         return a if "-" in a else f"{a}-USD"
-
-    # Moedas
-    if a in ("BRL=X", "USDBRL", "USD", "DOLAR"):
-        return "BRL=X"
-
-    # Lógica Brasil: se não tem .SA e é ação (tem numero), adiciona .SA
-    # Ex: PETR4 -> PETR4.SA. Mas AAPL -> AAPL (EUA)
+    if a in ("BRL=X", "USDBRL", "USD", "DOLAR"): return "BRL=X"
     has_digit = any(ch.isdigit() for ch in a)
     if moeda == "BRL" and has_digit and not a.endswith(".SA"):
         return f"{a}.SA"
-
     return a
 
 
 def format_market_cap(x: float) -> str:
     try:
-        if not x:
-            return "—"
+        if not x: return "—"
         x = float(x)
-        if x >= 1e12:
-            return f"{x / 1e12:.2f} T"
-        if x >= 1e9:
-            return f"{x / 1e9:.2f} B"
-        if x >= 1e6:
-            return f"{x / 1e6:.2f} M"
+        if x >= 1e12: return f"{x / 1e12:.2f} T"
+        if x >= 1e9: return f"{x / 1e9:.2f} B"
+        if x >= 1e6: return f"{x / 1e6:.2f} M"
         return f"{x:,.0f}"
     except Exception:
         return "—"
@@ -287,23 +296,23 @@ def calculate_rsi(data, window=14):
 
 
 # --------------------------------------------------------------------------------
-# 4) Data fetch (FIXED AND ROBUST)
+# 4) FETCH DE DADOS (YAHOO FINANCE ROBUSTO)
 # --------------------------------------------------------------------------------
+
 @st.cache_data(ttl=600)
 def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
+    """
+    Busca o preço atual e o fechamento anterior para uma lista de tickers.
+    Calcula a variação percentual (var_pct) do dia.
+    """
     if yf is None or not tickers:
         return pd.DataFrame(columns=["ticker", "last", "prev", "var_pct"])
-
-    # 1. Tentativa de download em lote
     try:
-        # auto_adjust=False é CRÍTICO em algumas versões do YF para evitar NaN
         data = yf.download(tickers, period="5d", progress=False, threads=True, group_by="ticker", auto_adjust=False)
     except Exception:
         return pd.DataFrame(columns=["ticker", "last", "prev", "var_pct"])
 
     out = []
-
-    # Se for apenas 1 ticker, a estrutura do DF é diferente (não tem MultiIndex nas colunas de nível superior)
     if len(tickers) == 1:
         t = tickers[0]
         try:
@@ -317,7 +326,6 @@ def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
         except Exception:
             pass
     else:
-        # Vários tickers
         for t in tickers:
             try:
                 s = None
@@ -327,12 +335,8 @@ def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
                     elif (t, "Close") in data.columns:
                         s = data[(t, "Close")]
                 else:
-                    if "Close" in data.columns:
-                        s = data["Close"]
-
-                if s is None:
-                    continue
-
+                    if "Close" in data.columns: s = data["Close"]
+                if s is None: continue
                 s = pd.to_numeric(s, errors="coerce").dropna()
                 if len(s) >= 2:
                     last = float(s.iloc[-1])
@@ -341,24 +345,7 @@ def yf_last_and_prev_close(tickers: list[str]) -> pd.DataFrame:
                     out.append({"ticker": t, "last": last, "prev": prev, "var_pct": var_pct})
             except Exception:
                 pass
-
     return pd.DataFrame(out)
-
-
-@st.cache_data(ttl=15)
-def binance_24h(symbol: str) -> dict:
-    try:
-        url = "https://api.binance.com/api/v3/ticker/24hr"
-        r = requests.get(url, params={"symbol": symbol}, timeout=3)
-        if r.status_code != 200:
-            return {}
-        j = r.json()
-        return {
-            "last": float(j.get("lastPrice", 0) or 0),
-            "var_pct": float(j.get("priceChangePercent", 0) or 0),
-        }
-    except Exception:
-        return {}
 
 
 @st.cache_data(ttl=1200)
@@ -368,16 +355,12 @@ def yf_info_extended(ticker: str) -> dict:
     try:
         tk = yf.Ticker(ticker)
         current_price = 0.0
-
-        # Tenta pegar preço histórico recente como fallback seguro
         try:
             h = tk.history(period="5d", auto_adjust=False)
-            if not h.empty:
-                current_price = float(h["Close"].iloc[-1])
+            if not h.empty: current_price = float(h["Close"].iloc[-1])
         except Exception:
             pass
 
-        # Se falhou histórico, tenta fast_info (mas ele costuma falhar menos)
         if current_price == 0.0:
             try:
                 if hasattr(tk, "fast_info") and tk.fast_info:
@@ -389,8 +372,7 @@ def yf_info_extended(ticker: str) -> dict:
 
         def safe_get(keys, d="—"):
             for k in keys:
-                if k in inf and inf[k]:
-                    return inf[k]
+                if k in inf and inf[k]: return inf[k]
             return d
 
         summary = safe_get(["longBusinessSummary"], "")
@@ -399,10 +381,6 @@ def yf_info_extended(ticker: str) -> dict:
                 summary = GoogleTranslator(source="auto", target="pt").translate(summary)
             except Exception:
                 pass
-
-        roe = safe_get(["returnOnEquity"])
-        margins = safe_get(["profitMargins"])
-        beta = safe_get(["beta"])
 
         return {
             "currentPrice": current_price,
@@ -413,9 +391,9 @@ def yf_info_extended(ticker: str) -> dict:
             "trailingPE": safe_get(["trailingPE", "forwardPE"], None),
             "dividendYield": safe_get(["dividendYield"], None),
             "marketCap": safe_get(["marketCap"], None),
-            "roe": roe,
-            "margins": margins,
-            "beta": beta
+            "roe": safe_get(["returnOnEquity"]),
+            "margins": safe_get(["profitMargins"]),
+            "beta": safe_get(["beta"])
         }
     except Exception:
         return {}
@@ -423,36 +401,16 @@ def yf_info_extended(ticker: str) -> dict:
 
 @st.cache_data(ttl=3600)
 def get_stock_history_plot(ticker: str, period="1y"):
-    if yf is None or go is None:
-        return None, None
+    if yf is None or go is None: return None, None
     try:
         df = yf.Ticker(ticker).history(period=period, auto_adjust=False)
-        if df.empty:
-            return None, None
-
-        fig = go.Figure(
-            data=[
-                go.Candlestick(
-                    x=df.index,
-                    open=df["Open"],
-                    high=df["High"],
-                    low=df["Low"],
-                    close=df["Close"],
-                    name=ticker,
-                )
-            ]
-        )
-        fig.update_layout(
-            xaxis_rangeslider_visible=False,
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            margin=dict(l=0, r=0, t=10, b=0),
-            height=320,
-        )
-
+        if df.empty: return None, None
+        fig = go.Figure(data=[
+            go.Candlestick(x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
+                           name=ticker)])
+        fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                          plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=10, b=0), height=320)
         rsi_val = calculate_rsi(df)
-
         return fig, rsi_val
     except Exception:
         return None, None
@@ -464,8 +422,7 @@ def get_google_news_items(query: str, limit: int = 8) -> list[dict]:
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         resp = requests.get(url, headers=headers, timeout=6)
-        if resp.status_code != 200:
-            return []
+        if resp.status_code != 200: return []
         feed = feedparser.parse(resp.content)
         items = []
         for e in getattr(feed, "entries", [])[:limit]:
@@ -482,7 +439,7 @@ def get_google_news_items(query: str, limit: int = 8) -> list[dict]:
 
 
 # --------------------------------------------------------------------------------
-# DIALOG FUNCTION (CUSTOM METRICS)
+# DIALOG FUNCTION (POP-UP DETALHES)
 # --------------------------------------------------------------------------------
 @st.dialog("🔍 Raio-X do Ativo")
 def show_asset_details_popup(ativo_selecionado):
@@ -504,17 +461,14 @@ def show_asset_details_popup(ativo_selecionado):
             """
 
         m1, m2, m3 = st.columns(3)
-
         with m1:
             val_fmt = fmt_money_brl(info.get("currentPrice"), 2)
             st.markdown(mini_metric("Preço", val_fmt), unsafe_allow_html=True)
-
         with m2:
             dy_val = info.get('dividendYield', 0)
             if dy_val is None: dy_val = 0
             fmt_dy = f"{dy_val * 100:.2f}%"
             st.markdown(mini_metric("DY (Yield)", fmt_dy), unsafe_allow_html=True)
-
         with m3:
             pe_val = info.get('trailingPE', 0)
             if pe_val is None: pe_val = 0
@@ -522,9 +476,7 @@ def show_asset_details_popup(ativo_selecionado):
             st.markdown(mini_metric("P/L", fmt_pe), unsafe_allow_html=True)
 
         st.markdown("---")
-
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        if fig: st.plotly_chart(fig, use_container_width=True)
 
         if rsi:
             rsi_text = f"{rsi:.1f}"
@@ -552,10 +504,11 @@ def show_asset_details_popup(ativo_selecionado):
 
 
 # --------------------------------------------------------------------------------
-# 5) Streamlit config + CSS
+# 5) STREAMLIT CONFIG E CSS (BEE THEME)
 # --------------------------------------------------------------------------------
 logo_img = process_logo_transparency(LOGO_PATH)
 page_icon = logo_img if logo_img else "🐝"
+
 st.set_page_config(
     page_title="Bee Finanças",
     page_icon=page_icon,
@@ -563,21 +516,18 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Inicializar DB
 init_db()
 
-# =========================
-#  CSS NOVO (BEE THEME)
-# =========================
+# CSS COMPLETO
 st.markdown(
     """
 <style>
 /* =========================
-   BEE THEME (v33) — CSS ONLY
+   BEE THEME (v34 - EXTENDED CSS)
    Paleta: Amarelo / Preto / Marrom / Branco
    ========================= */
 
-:root{
+:root {
   --bee-yellow: #FFD700;
   --bee-yellow-soft: rgba(255,215,0,0.12);
   --bee-black: #0B0F14;
@@ -601,8 +551,8 @@ st.markdown(
   --shadow-2: 0 8px 18px rgba(0,0,0,0.25);
 }
 
-/* ====== FUNDO (colmeia sutil) ====== */
-.stApp{
+/* ====== FUNDO (BACKGROUND) ====== */
+.stApp {
   background:
     radial-gradient(circle at 18% 18%, rgba(255,215,0,0.08), transparent 38%),
     radial-gradient(circle at 78% 82%, rgba(93,64,55,0.22), transparent 45%),
@@ -616,71 +566,82 @@ st.markdown(
 }
 
 /* ====== TIPOGRAFIA ====== */
-h1, h2, h3, h4{
+h1, h2, h3, h4 {
   color: var(--bee-yellow) !important;
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-weight: 900;
-  letter-spacing:-0.03em;
+  letter-spacing: -0.03em;
 }
-p, span, div { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 
-div[data-testid="stVerticalBlock"] { gap: 0.40rem !important; }
+p, span, div {
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+/* Espaçamentos verticais ajustados */
+div[data-testid="stVerticalBlock"] {
+  gap: 0.40rem !important;
+}
 
 /* ====== SIDEBAR ====== */
-section[data-testid="stSidebar"]{
+section[data-testid="stSidebar"] {
   background: linear-gradient(180deg, #07090D 0%, #090C10 55%, #07090D 100%);
   border-right: 1px solid rgba(255,215,0,0.10);
 }
-section[data-testid="stSidebar"] img{
-  display:block;
+
+section[data-testid="stSidebar"] img {
+  display: block;
   margin: 6px auto 10px auto;
-  object-fit:contain;
-  max-width:100%;
+  object-fit: contain;
+  max-width: 100%;
   filter: drop-shadow(0 10px 20px rgba(0,0,0,0.35));
 }
 
-.menu-header{
-  font-size:10px;
-  text-transform:uppercase;
+.menu-header {
+  font-size: 10px;
+  text-transform: uppercase;
   color: rgba(255,215,0,0.45);
   font-weight: 900;
-  letter-spacing:1.1px;
+  letter-spacing: 1.1px;
   margin-top: 10px;
   margin-bottom: 6px;
   padding-left: 4px;
 }
 
 /* ====== NAV BUTTONS ====== */
-.navbtn button{
-  width:100%;
+.navbtn button {
+  width: 100%;
   background: linear-gradient(90deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.018) 100%) !important;
   color: rgba(255,255,255,0.78) !important;
-  border:1px solid rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.07) !important;
   border-radius: 12px !important;
   padding: 0.42rem 0.85rem !important;
   font-weight: 900 !important;
   font-size: 13px !important;
-  text-align:left !important;
+  text-align: left !important;
   transition: all .14s ease;
   height: 40px !important;
-  display:flex !important;
-  align-items:center !important;
+  display: flex !important;
+  align-items: center !important;
   box-shadow: 0 8px 18px rgba(0,0,0,0.20);
 }
-.navbtn button:hover{
+
+.navbtn button:hover {
   background: linear-gradient(90deg, rgba(255,215,0,0.14) 0%, rgba(93,64,55,0.16) 100%) !important;
   border-color: rgba(255,215,0,0.35) !important;
   transform: translateX(3px);
 }
-.navbtn button:focus{ outline: none !important; }
+
+.navbtn button:focus {
+  outline: none !important;
+}
 
 /* ====== DIVIDER / HR ====== */
-hr, .stDivider{
+hr, .stDivider {
   border-color: rgba(255,255,255,0.08) !important;
 }
 
 /* ====== CARDS (bee-card) ====== */
-.bee-card{
+.bee-card {
   background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 18px;
@@ -690,16 +651,18 @@ hr, .stDivider{
   position: relative;
   overflow: hidden;
 }
-.bee-card::before{
-  content:"";
-  position:absolute;
-  inset:-2px;
+
+.bee-card::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
   background: radial-gradient(circle at 20% 0%, rgba(255,215,0,0.16), transparent 40%),
               radial-gradient(circle at 90% 100%, rgba(93,64,55,0.22), transparent 42%);
   opacity: .55;
-  pointer-events:none;
+  pointer-events: none;
 }
-.card-title{
+
+.card-title {
   color: rgba(255,215,0,0.85);
   font-weight: 900;
   font-size: 11px;
@@ -707,24 +670,37 @@ hr, .stDivider{
   letter-spacing: 1px;
   margin-bottom: 6px;
 }
-.kpi{
+
+.kpi {
   color: #fff;
   font-weight: 950;
   font-size: 26px;
   line-height: 1.05;
   text-shadow: 0 10px 25px rgba(0,0,0,0.35);
 }
-.sub{
+
+.sub {
   color: rgba(255,255,255,0.60);
   font-size: 12px;
   margin-top: 6px;
 }
-.kpi-compact .kpi{ font-size: 22px !important; }
-.kpi-small .kpi{ font-size: 20px !important; }
+
+.kpi-compact .kpi {
+  font-size: 22px !important;
+}
+
+.kpi-small .kpi {
+  font-size: 20px !important;
+}
 
 /* ====== NEWS CARDS ====== */
-a.news-card-link{ text-decoration:none; display:block; margin-bottom:10px; }
-.news-card-box{
+a.news-card-link {
+  text-decoration: none;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.news-card-box {
   background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 14px;
@@ -732,26 +708,30 @@ a.news-card-link{ text-decoration:none; display:block; margin-bottom:10px; }
   transition: all .14s ease;
   box-shadow: 0 10px 22px rgba(0,0,0,0.25);
 }
-.news-card-box:hover{
+
+.news-card-box:hover {
   border-color: rgba(255,215,0,0.45);
   transform: translateY(-2px);
   box-shadow: 0 16px 34px rgba(0,0,0,0.32);
 }
-.nc-title{
-  color:#fff;
+
+.nc-title {
+  color: #fff;
   font-weight: 950;
   font-size: 14px;
   line-height: 1.35;
   margin-bottom: 6px;
 }
-.nc-meta{
+
+.nc-meta {
   color: rgba(255,255,255,0.60);
   font-size: 12px;
-  display:flex;
-  gap:8px;
-  align-items:center;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
-.nc-badge{
+
+.nc-badge {
   background: rgba(255,215,0,0.14);
   color: var(--bee-yellow);
   padding: 2px 9px;
@@ -763,38 +743,59 @@ a.news-card-link{ text-decoration:none; display:block; margin-bottom:10px; }
 }
 
 /* ====== MARKET MONITOR PILLS ====== */
-.ticker-pill{
+.ticker-pill {
   background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
   border-radius: 12px;
   padding: 9px 10px;
   margin-bottom: 8px;
-  display:flex;
+  display: flex;
   justify-content: space-between;
-  align-items:center;
+  align-items: center;
   border: 1px solid rgba(255,255,255,0.08);
   box-shadow: 0 10px 18px rgba(0,0,0,0.22);
 }
-.tp-up{ border-left: 4px solid var(--bee-good); }
-.tp-down{ border-left: 4px solid var(--bee-bad); }
-.tp-name{ font-weight: 950; font-size: 12px; color: rgba(255,255,255,0.80); }
-.tp-price{ font-weight: 950; font-size: 12px; color: #FFF; }
-.tp-pct{ font-size: 11px; font-weight: 950; }
+
+.tp-up {
+  border-left: 4px solid var(--bee-good);
+}
+
+.tp-down {
+  border-left: 4px solid var(--bee-bad);
+}
+
+.tp-name {
+  font-weight: 950;
+  font-size: 12px;
+  color: rgba(255,255,255,0.80);
+}
+
+.tp-price {
+  font-weight: 950;
+  font-size: 12px;
+  color: #FFF;
+}
+
+.tp-pct {
+  font-size: 11px;
+  font-weight: 950;
+}
 
 /* ====== INPUTS / SELECT / DATE ====== */
-.stTextInput input, .stNumberInput input, .stDateInput input{
+.stTextInput input, .stNumberInput input, .stDateInput input {
   background: rgba(18,23,30,0.92) !important;
   color: #fff !important;
   border: 1px solid rgba(255,215,0,0.16) !important;
   border-radius: 12px !important;
 }
-.stSelectbox > div > div{
+
+.stSelectbox > div > div {
   background: rgba(18,23,30,0.92) !important;
   border: 1px solid rgba(255,215,0,0.16) !important;
   border-radius: 12px !important;
 }
 
 /* ====== BUTTONS (global) ====== */
-.stButton button, .stDownloadButton button{
+.stButton button, .stDownloadButton button {
   border-radius: 12px !important;
   font-weight: 950 !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
@@ -803,46 +804,51 @@ a.news-card-link{ text-decoration:none; display:block; margin-bottom:10px; }
   box-shadow: 0 10px 18px rgba(0,0,0,0.22);
   transition: all .14s ease;
 }
-.stButton button:hover, .stDownloadButton button:hover{
+
+.stButton button:hover, .stDownloadButton button:hover {
   transform: translateY(-1px);
   border-color: rgba(255,215,0,0.28) !important;
 }
 
-/* botão amarelo */
-.yellowbtn button{
+/* botão amarelo (Custom Class) */
+.yellowbtn button {
   background: linear-gradient(180deg, var(--bee-yellow), #FFC400) !important;
   color: #000 !important;
   border: none !important;
   border-radius: 12px !important;
   box-shadow: 0 16px 30px rgba(255,215,0,0.18);
 }
-.yellowbtn button:hover{
+
+.yellowbtn button:hover {
   transform: translateY(-1px);
   box-shadow: 0 18px 36px rgba(255,215,0,0.22);
 }
 
 /* ====== METRICS ====== */
-div[data-testid="stMetric"]{
+div[data-testid="stMetric"] {
   background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px;
   padding: 12px 12px;
   box-shadow: 0 12px 22px rgba(0,0,0,0.22);
 }
-div[data-testid="stMetric"] label{
+
+div[data-testid="stMetric"] label {
   color: rgba(255,215,0,0.75) !important;
   font-weight: 900 !important;
 }
-div[data-testid="stMetric"] [data-testid="stMetricValue"]{
+
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {
   color: #fff !important;
   font-weight: 950 !important;
 }
 
 /* ====== TABS ====== */
-.stTabs [data-baseweb="tab-list"]{
+.stTabs [data-baseweb="tab-list"] {
   gap: 8px;
 }
-.stTabs [data-baseweb="tab"]{
+
+.stTabs [data-baseweb="tab"] {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 999px;
@@ -850,31 +856,33 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"]{
   color: rgba(255,255,255,0.75);
   font-weight: 950;
 }
-.stTabs [aria-selected="true"]{
+
+.stTabs [aria-selected="true"] {
   background: rgba(255,215,0,0.16);
   border-color: rgba(255,215,0,0.28);
   color: #fff;
 }
 
 /* ====== EXPANDER ====== */
-details{
+details {
   border-radius: 14px !important;
   border: 1px solid rgba(255,255,255,0.08) !important;
   background: rgba(255,255,255,0.02) !important;
   box-shadow: 0 10px 20px rgba(0,0,0,0.20);
 }
-details summary{
+
+details summary {
   color: rgba(255,255,255,0.86) !important;
   font-weight: 950 !important;
 }
 
 /* ====== PROGRESS BAR ====== */
-div[data-testid="stProgress"] > div > div{
+div[data-testid="stProgress"] > div > div {
   background: linear-gradient(90deg, #FFC400, var(--bee-yellow)) !important;
 }
 
 /* ====== DATAFRAME / TABLE CONTAINER ====== */
-div[data-testid="stDataFrame"], div[data-testid="stTable"]{
+div[data-testid="stDataFrame"], div[data-testid="stTable"] {
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.08);
@@ -882,16 +890,16 @@ div[data-testid="stDataFrame"], div[data-testid="stTable"]{
 }
 
 /* ====== LINK BUTTON ====== */
-a[data-testid="stLinkButton"]{
+a[data-testid="stLinkButton"] {
   border-radius: 12px !important;
 }
 
 /* ====== FOOTER ====== */
-.bee-footer{
+.bee-footer {
   margin-top: 18px;
   opacity: .62;
   font-size: 12px;
-  display:flex;
+  display: flex;
   justify-content: space-between;
   color: rgba(255,255,255,0.60);
 }
@@ -901,7 +909,7 @@ a[data-testid="stLinkButton"]{
 )
 
 # --------------------------------------------------------------------------------
-# 6) Data model & Session State
+# 6) MODELO DE DADOS & SESSION STATE
 # --------------------------------------------------------------------------------
 if "user_logged_in" not in st.session_state:
     st.session_state["user_logged_in"] = False
@@ -935,7 +943,8 @@ if st.session_state.get("bee_light"):
     st.markdown(
         """
         <style>
-        .stApp{
+        /* ====== BEE LIGHT MODE (Tema Claro/Amarelo) ====== */
+        .stApp {
           background:
             radial-gradient(circle at 18% 18%, rgba(255,215,0,0.18), transparent 40%),
             radial-gradient(circle at 78% 82%, rgba(255,215,0,0.12), transparent 48%),
@@ -946,19 +955,48 @@ if st.session_state.get("bee_light"):
             #0B0F14;
           background-size: auto, auto, auto, 64px 64px, 64px 64px, 64px 64px, auto;
         }
-        section[data-testid="stSidebar"]{ border-right: 1px solid rgba(255,215,0,0.22) !important; }
-        .bee-card{ border: 1px solid rgba(255,215,0,0.14) !important; }
-        .card-title{ color: rgba(255,215,0,0.95) !important; }
-        .news-card-box{ border: 1px solid rgba(255,215,0,0.16) !important; }
-        .news-card-box:hover{ border-color: rgba(255,215,0,0.55) !important; }
-        .navbtn button{ border-color: rgba(255,215,0,0.14) !important; }
-        .navbtn button:hover{ border-color: rgba(255,215,0,0.45) !important; }
-        .stTextInput input, .stNumberInput input, .stDateInput input{
+
+        section[data-testid="stSidebar"] {
+          border-right: 1px solid rgba(255,215,0,0.22) !important;
+        }
+
+        .bee-card {
+          border: 1px solid rgba(255,215,0,0.14) !important;
+        }
+
+        .card-title {
+          color: rgba(255,215,0,0.95) !important;
+        }
+
+        .news-card-box {
+          border: 1px solid rgba(255,215,0,0.16) !important;
+        }
+
+        .news-card-box:hover {
+          border-color: rgba(255,215,0,0.55) !important;
+        }
+
+        .navbtn button {
+          border-color: rgba(255,215,0,0.14) !important;
+        }
+
+        .navbtn button:hover {
+          border-color: rgba(255,215,0,0.45) !important;
+        }
+
+        .stTextInput input, .stNumberInput input, .stDateInput input {
           border: 1px solid rgba(255,215,0,0.24) !important;
           box-shadow: 0 0 0 1px rgba(255,215,0,0.06) inset;
         }
-        .stSelectbox > div > div{ border: 1px solid rgba(255,215,0,0.24) !important; }
-        .stTabs [aria-selected="true"]{ background: rgba(255,215,0,0.22) !important; border-color: rgba(255,215,0,0.40) !important; }
+
+        .stSelectbox > div > div {
+          border: 1px solid rgba(255,215,0,0.24) !important;
+        }
+
+        .stTabs [aria-selected="true"] {
+          background: rgba(255,215,0,0.22) !important;
+          border-color: rgba(255,215,0,0.40) !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1000,13 +1038,14 @@ def atualizar_precos_carteira_memory(df):
         except Exception:
             pass
 
-    # Normalize ticker
     df["Ticker_YF"] = df.apply(
         lambda r: normalize_ticker(str(r["Ativo"]), "Ação", str(r.get("Moeda", "BRL")).upper()),
         axis=1,
     )
 
     df["Preco_Atual"] = 0.0
+    df["Var_Dia_Pct"] = 0.0  # Nova coluna para a variação do dia
+
     is_rf = df["Tipo"].astype(str).str.contains("Renda Fixa|RF", case=False, na=False)
     df.loc[is_rf, "Preco_Atual"] = df.loc[is_rf, "Preco_Medio"]
 
@@ -1016,11 +1055,17 @@ def atualizar_precos_carteira_memory(df):
     if tickers and yf is not None:
         px_df = yf_last_and_prev_close(tickers)
         for _, r in px_df.iterrows():
-            px_map[r["ticker"]] = float(r["last"])
+            px_map[r["ticker"]] = {
+                "price": float(r["last"]),
+                "var": float(r["var_pct"])
+            }
 
     for i, row in df.iterrows():
         if bool(is_rf.iloc[i]): continue
-        df.at[i, "Preco_Atual"] = float(px_map.get(row["Ticker_YF"], 0.0))
+
+        data_tick = px_map.get(row["Ticker_YF"], {"price": 0.0, "var": 0.0})
+        df.at[i, "Preco_Atual"] = data_tick["price"]
+        df.at[i, "Var_Dia_Pct"] = data_tick["var"]
 
     for c in ["Qtd", "Preco_Medio"]:
         if df[c].dtype == object:
@@ -1164,21 +1209,40 @@ with st.sidebar:
 
         ibov_val = ibov_pct = None
         usd_val = usd_pct = None
+        btc_usd_val = btc_usd_pct = None
+        btc_brl_val = btc_brl_pct = None
+
         if yf is not None:
-            # Tenta baixar IBOV e USD
-            snap = yf_last_and_prev_close(["^BVSP", "BRL=X"])
+            # Tenta baixar IBOV, USD e BTC (USD e BRL) tudo via Yahoo Finance
+            # "BTC-USD" é o padrão. "BTC-BRL" também costuma ter no YF.
+            tickers_monitor = ["^BVSP", "BRL=X", "BTC-USD", "BTC-BRL"]
+            snap = yf_last_and_prev_close(tickers_monitor)
+
             if not snap.empty:
                 ib = snap[snap["ticker"] == "^BVSP"]
                 fx = snap[snap["ticker"] == "BRL=X"]
+                btcu = snap[snap["ticker"] == "BTC-USD"]
+                btcb = snap[snap["ticker"] == "BTC-BRL"]
+
                 if not ib.empty:
                     ibov_val = float(ib.iloc[0]["last"])
                     ibov_pct = float(ib.iloc[0]["var_pct"])
                 if not fx.empty:
                     usd_val = float(fx.iloc[0]["last"])
                     usd_pct = float(fx.iloc[0]["var_pct"])
+                if not btcu.empty:
+                    btc_usd_val = float(btcu.iloc[0]["last"])
+                    btc_usd_pct = float(btcu.iloc[0]["var_pct"])
+                if not btcb.empty:
+                    btc_brl_val = float(btcb.iloc[0]["last"])
+                    btc_brl_pct = float(btcb.iloc[0]["var_pct"])
 
-        btcusd = binance_24h("BTCUSDT")
-        btcbrl = binance_24h("BTCBRL")
+                # FALLBACK MATEMÁTICO: Se o BTC-BRL falhar, calcula na marra!
+                # Preço = BTC-USD * USD-BRL
+                if (btc_brl_val is None or btc_brl_val == 0) and (btc_usd_val is not None and usd_val is not None):
+                    btc_brl_val = btc_usd_val * usd_val
+                    # Assume a mesma variação do BTC em Dólar (aproximação)
+                    btc_brl_pct = btc_usd_pct
 
 
         def pill(name, price_text, pct):
@@ -1209,14 +1273,13 @@ with st.sidebar:
         else:
             pill("USD/BRL", "—", None)
 
-        if btcusd:
-            pill("BTC (US$)", fmt_money_usd(btcusd["last"], 0), btcusd.get("var_pct"))
+        if btc_usd_val is not None:
+            pill("BTC (US$)", fmt_money_usd(btc_usd_val, 0), btc_usd_pct)
         else:
             pill("BTC (US$)", "—", None)
 
-        if btcbrl:
-            pill("BTC (R$)", f"R$ {fmt_ptbr_number(btcbrl['last'], 0)}" if btcbrl.get('last') else "—",
-                 btcbrl.get("var_pct"))
+        if btc_brl_val is not None:
+            pill("BTC (R$)", f"R$ {fmt_ptbr_number(btc_brl_val, 0)}", btc_brl_pct)
         else:
             pill("BTC (R$)", "—", None)
 
@@ -1227,10 +1290,31 @@ with st.sidebar:
             value=st.session_state["bee_light"]
         )
 
+        st.markdown("---")
+
+        # --- CONFIGURAÇÕES DA CONTA (TROCA DE SENHA) ---
+        with st.expander("⚙️ Configurações da Conta"):
+            old_p = st.text_input("Senha Atual", type="password")
+            new_p = st.text_input("Nova Senha", type="password")
+            if st.button("Alterar Senha"):
+                if update_password_db(st.session_state["username"], old_p, new_p):
+                    st.success("Senha alterada com sucesso!")
+                else:
+                    st.error("Senha atual incorreta.")
+
         if st.button("Sair (Logout)", use_container_width=True):
             st.session_state["user_logged_in"] = False
             st.session_state["username"] = ""
             st.rerun()
+
+        # DANGER ZONE (DELETE ACCOUNT)
+        st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+        with st.expander("❌ Zona de Perigo"):
+            st.caption("Ação irreversível. Todos os seus dados serão apagados permanentemente.")
+            if st.button("Deletar Minha Conta", type="primary"):
+                delete_user_db(st.session_state["username"])
+                st.session_state.clear()
+                st.rerun()
 
     except Exception:
         pass
@@ -1272,27 +1356,44 @@ st.markdown("<hr style='border-color:rgba(255,255,255,0.06); margin-top:10px'>",
 page = st.session_state["page"]
 
 # --------------------------------------------------------------------------------
-# PAGES
+# LÓGICA DAS PÁGINAS
 # --------------------------------------------------------------------------------
 if page == "🏠 Home":
     st.markdown(f"## 📌 Visão do Mercado (Olá, {st.session_state['user_name_display']})")
 
     ibov_val = ibov_pct = None
     usd_val = usd_pct = None
+    btc_usd_val = btc_usd_pct = None
+    btc_brl_val = btc_brl_pct = None
+
     if yf is not None:
-        snap = yf_last_and_prev_close(["^BVSP", "BRL=X"])
+        # Mesma lógica da sidebar: puxar tudo do Yahoo Finance
+        tickers_home = ["^BVSP", "BRL=X", "BTC-USD", "BTC-BRL"]
+        snap = yf_last_and_prev_close(tickers_home)
+
         if not snap.empty:
             ib = snap[snap["ticker"] == "^BVSP"]
             fx = snap[snap["ticker"] == "BRL=X"]
+            btcu = snap[snap["ticker"] == "BTC-USD"]
+            btcb = snap[snap["ticker"] == "BTC-BRL"]
+
             if not ib.empty:
                 ibov_val = float(ib.iloc[0]["last"])
                 ibov_pct = float(ib.iloc[0]["var_pct"])
             if not fx.empty:
                 usd_val = float(fx.iloc[0]["last"])
                 usd_pct = float(fx.iloc[0]["var_pct"])
+            if not btcu.empty:
+                btc_usd_val = float(btcu.iloc[0]["last"])
+                btc_usd_pct = float(btcu.iloc[0]["var_pct"])
+            if not btcb.empty:
+                btc_brl_val = float(btcb.iloc[0]["last"])
+                btc_brl_pct = float(btcb.iloc[0]["var_pct"])
 
-    btcusd = binance_24h("BTCUSDT")
-    btcbrl = binance_24h("BTCBRL")
+            # FALLBACK MATEMÁTICO NA HOME TAMBÉM
+            if (btc_brl_val is None or btc_brl_val == 0) and (btc_usd_val is not None and usd_val is not None):
+                btc_brl_val = btc_usd_val * usd_val
+                btc_brl_pct = btc_usd_pct
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -1304,19 +1405,66 @@ if page == "🏠 Home":
         sub = f"{usd_pct:+.2f}% (dia)" if usd_pct is not None else ""
         kpi_card("USD/BRL", val, sub, color="#FFD700", compact=True)
     with c3:
-        if btcusd:
-            val = fmt_money_usd(btcusd["last"], 0)
-            sub = f"{btcusd.get('var_pct', 0):+.2f}% (24h)"
-        else:
-            val, sub = "—", ""
+        val = fmt_money_usd(btc_usd_val, 0) if btc_usd_val is not None else "—"
+        sub = f"{btc_usd_pct:+.2f}% (24h)" if btc_usd_pct is not None else ""
         kpi_card("BTC (US$)", val, sub, color="#FFD700", compact=True)
     with c4:
-        if btcbrl:
-            val = f"R$ {fmt_ptbr_number(btcbrl['last'], 0)}"
-            sub = f"{btcbrl.get('var_pct', 0):+.2f}% (24h)"
-        else:
-            val, sub = "—", ""
+        val = f"R$ {fmt_ptbr_number(btc_brl_val, 0)}" if btc_brl_val is not None else "—"
+        sub = f"{btc_brl_pct:+.2f}% (24h)" if btc_brl_pct is not None else ""
         kpi_card("BTC (R$)", val, sub, color="#FFD700", small=True)
+
+    st.write("")
+
+    # --- DESTAQUES DA CARTEIRA (VARIAÇÃO DIÁRIA) ---
+    st.markdown("### 🏆 Destaques da Carteira (24h)")
+
+    df_cart = st.session_state["carteira_df"]
+
+    if not df_cart.empty:
+        # Calcular PnL atualizado (usando a função de memória)
+        df_calc, _ = atualizar_precos_carteira_memory(df_cart)
+
+        # Filtrar fora renda fixa (RF não tem 'sobe e desce' diário igual ação)
+        df_stocks = df_calc[~df_calc["Tipo"].astype(str).str.contains("Renda Fixa|RF", case=False, na=False)].copy()
+
+        if not df_stocks.empty:
+            # Ordenar por Variação do Dia (Var_Dia_Pct)
+            df_stocks = df_stocks.sort_values(by="Var_Dia_Pct", ascending=False)
+
+            # Top Gainers (Carteira)
+            my_gain = df_stocks.head(5)
+            # Top Losers (Carteira)
+            my_loss = df_stocks.tail(5).sort_values(by="Var_Dia_Pct", ascending=True)
+
+            mc1, mc2 = st.columns(2)
+            with mc1:
+                st.markdown("##### 🚀 Maiores Altas Hoje")
+                st.dataframe(
+                    my_gain[["Ativo", "Var_Dia_Pct", "Preco_Atual_BRL"]],
+                    hide_index=True,
+                    column_config={
+                        "Ativo": "Ativo",
+                        "Var_Dia_Pct": st.column_config.NumberColumn("Var Dia %", format="%.2f %%"),
+                        "Preco_Atual_BRL": st.column_config.NumberColumn("Preço Atual", format="R$ %.2f")
+                    },
+                    use_container_width=True
+                )
+            with mc2:
+                st.markdown("##### 🔻 Maiores Baixas Hoje")
+                st.dataframe(
+                    my_loss[["Ativo", "Var_Dia_Pct", "Preco_Atual_BRL"]],
+                    hide_index=True,
+                    column_config={
+                        "Ativo": "Ativo",
+                        "Var_Dia_Pct": st.column_config.NumberColumn("Var Dia %", format="%.2f %%"),
+                        "Preco_Atual_BRL": st.column_config.NumberColumn("Preço Atual", format="R$ %.2f")
+                    },
+                    use_container_width=True
+                )
+        else:
+            st.info("Você só tem Renda Fixa ou a carteira está vazia.")
+    else:
+        st.warning("Adicione ativos na aba Carteira para ver seu ranking.")
 
     st.write("")
     st.markdown("### ⚡ Acesso Rápido")
@@ -1595,7 +1743,40 @@ elif page == "💼 Carteira":
                         show_asset_details_popup(ativo_selecionado)
 
         st.write("---")
-        with st.expander("📝 Adicionar / Editar Ativos", expanded=False):
+
+        # --- QUICK ADD FORM (NOVO) ---
+        with st.expander("➕ Adicionar Novo Ativo (Formulário Rápido)", expanded=False):
+            with st.form("form_add_asset"):
+                fc1, fc2, fc3 = st.columns(3)
+                f_tipo = fc1.selectbox("Tipo", ["Ação/ETF", "Cripto", "Renda Fixa"])
+                f_ativo = fc2.text_input("Ativo (Ticker)", placeholder="Ex: PETR4").upper()
+                f_moeda = fc3.selectbox("Moeda", ["BRL", "USD"])
+
+                fc4, fc5 = st.columns(2)
+                f_qtd = fc4.number_input("Quantidade", min_value=0.0, step=1.0)
+                f_preco = fc5.number_input("Preço Médio", min_value=0.0, step=0.01, format="%.2f")
+
+                if st.form_submit_button("Adicionar à Carteira"):
+                    if f_ativo and f_qtd > 0:
+                        new_asset = {
+                            "Tipo": f_tipo,
+                            "Ativo": f_ativo,
+                            "Nome": f_ativo,  # Simplificação
+                            "Qtd": f_qtd,
+                            "Preco_Medio": f_preco,
+                            "Moeda": f_moeda,
+                            "Obs": ""
+                        }
+                        st.session_state["carteira_df"] = pd.concat(
+                            [st.session_state["carteira_df"], pd.DataFrame([new_asset])], ignore_index=True)
+                        save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
+                                          st.session_state["gastos_df"])
+                        st.success(f"{f_ativo} adicionado com sucesso!")
+                        st.rerun()
+                    else:
+                        st.warning("Preencha o Ticker e a Quantidade.")
+
+        with st.expander("📝 Editar Tabela Completa", expanded=False):
             st.caption("Edite os valores na tabela abaixo para atualizar sua carteira.")
 
             edit_cols = ["Tipo", "Ativo", "Qtd", "Preco_Medio", "Moeda", "Obs"]
@@ -1613,7 +1794,7 @@ elif page == "💼 Carteira":
                 key="editor_carteira"
             )
 
-            if st.button("💾 Salvar na Nuvem (DB)", type="primary"):
+            if st.button("💾 Salvar Edições (Tabela)", type="primary"):
                 st.session_state["carteira_df"] = edited_df
                 save_user_data_db(st.session_state["username"], st.session_state["carteira_df"],
                                   st.session_state["gastos_df"])
@@ -1688,9 +1869,6 @@ elif page == "💸 Controle":
         saldo = total_ent - total_sai
 
         percent_gasto = min(total_sai / nova_meta_gasto, 1.0) if nova_meta_gasto > 0 else 0
-        cor_barra = "green"
-        if percent_gasto > 0.75: cor_barra = "orange"
-        if percent_gasto > 0.95: cor_barra = "red"
 
         st.markdown(f"**Orçamento usado:** {percent_gasto * 100:.1f}% de {fmt_money_brl(nova_meta_gasto, 0)}")
         st.progress(percent_gasto)
