@@ -1,4 +1,5 @@
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import streamlit as st
@@ -16,18 +17,42 @@ from bee.pages.controle import render_controle
 from bee.pages.calculadoras import render_calculadoras
 
 
+# === AJUSTE VISUAL: DIMINUIR FONTES GIGANTES ===
+def apply_custom_style():
+    """Diminui o tamanho das métricas (R$) que estavam estouradas."""
+    st.markdown("""
+        <style>
+        /* Valor numérico (ex: R$ 404.000) */
+        [data-testid="stMetricValue"] {
+            font-size: 26px !important; 
+            font-weight: 700 !important;
+        }
+        /* Rótulo (ex: Receitas, Saldo) */
+        [data-testid="stMetricLabel"] {
+            font-size: 14px !important;
+            color: #aaa !important;
+        }
+        /* Container da métrica */
+        [data-testid="stMetric"] {
+            background-color: rgba(255,255,255,0.03);
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+
 def render_login(logo_img):
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-
         if logo_img:
             st.image(logo_img, width=150)
         else:
             st.markdown("# 🐝 Bee Finanças")
 
         st.markdown("### Acesso Seguro")
-
         tab_login, tab_register = st.tabs(["Entrar", "Criar Conta"])
 
         with tab_login:
@@ -43,6 +68,7 @@ def render_login(logo_img):
                     c_df, g_df = load_user_data_db(l_user)
                     st.session_state["carteira_df"] = c_df
                     st.session_state["gastos_df"] = g_df
+
                     if not c_df.empty:
                         st.session_state["wallet_mode"] = True
                     if not g_df.empty:
@@ -63,7 +89,6 @@ def render_login(logo_img):
                         st.error("Usuário já existe.")
                 else:
                     st.warning("Preencha todos os campos.")
-
     st.stop()
 
 
@@ -90,10 +115,8 @@ def render_sidebar(logo_img):
         nav_btn("🧮 Calculadoras", "🧮 Calculadoras")
 
         st.divider()
-
         sidebar_market_monitor()
 
-        # Bee Light toggle
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
         new_light = st.toggle("💡 Bee Light (mais amarelo)", value=st.session_state["bee_light"])
         if new_light != st.session_state["bee_light"]:
@@ -101,8 +124,6 @@ def render_sidebar(logo_img):
             st.rerun()
 
         st.markdown("---")
-
-        # Configurações da conta
         with st.expander("⚙️ Configurações da Conta"):
             old_p = st.text_input("Senha Atual", type="password")
             new_p = st.text_input("Nova Senha", type="password")
@@ -117,10 +138,9 @@ def render_sidebar(logo_img):
             st.session_state["username"] = ""
             st.rerun()
 
-        # Danger zone delete
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
         with st.expander("❌ Zona de Perigo"):
-            st.caption("Ação irreversível. Todos os seus dados serão apagados permanentemente.")
+            st.caption("Ação irreversível. Apaga tudo.")
             if st.button("Deletar Minha Conta", type="primary"):
                 delete_user_db(st.session_state["username"])
                 st.session_state.clear()
@@ -146,15 +166,16 @@ def route_pages():
 
 
 def main():
-    # 1) Page config + theme (tem que ser antes de qualquer st.* visual)
+    # 1) Config + CSS
     logo_img = apply_page_config()
     apply_theme_css()
+    apply_custom_style()  # <--- CSS DA FONTE MENOR
 
     # 2) State + DB
     init_session_state()
-    init_db()
+    init_db()  # <--- ISSO VAI CHAMAR O bee/db.py NOVO E CRIAR AS TABELAS
 
-    # 3) Bee light override
+    # 3) Bee Light
     if st.session_state.get("bee_light"):
         apply_bee_light_css()
 
@@ -162,23 +183,14 @@ def main():
     if not st.session_state["user_logged_in"]:
         render_login(logo_img)
 
-    # 5) Sidebar + top bar + pages
+    # 5) App principal
     render_sidebar(logo_img)
     top_bar()
-
     route_pages()
 
-    # Footer
     from bee.config import APP_VERSION
-    st.markdown(
-        f"""
-<div class="bee-footer">
-  <div>Bee Finanças</div>
-  <div>{APP_VERSION}</div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"<div class='bee-footer'><div>Bee Finanças</div><div>{APP_VERSION}</div></div>",
+                unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
