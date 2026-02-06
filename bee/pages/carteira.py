@@ -9,7 +9,6 @@ from bee.db import save_user_data_db, load_targets_db, save_targets_db
 from bee.market_data import atualizar_precos_carteira_memory
 from bee.dialogs import show_asset_details_popup
 
-
 CARTEIRA_COLS = ["Tipo", "Ativo", "Nome", "Qtd", "Preco_Medio", "Moeda", "Obs"]
 
 
@@ -50,7 +49,8 @@ def _render_targets_and_rebalance(df_calc: pd.DataFrame):
     st.markdown("### 🎯 Alocação alvo + Rebalance (por aporte)")
     username = st.session_state["username"]
 
-    targets = load_targets_db(DB_FILE, username)
+    # === CORREÇÃO: Ordem dos argumentos (username, db_file) ===
+    targets = load_targets_db(username, DB_FILE)
 
     # UI: editar metas
     keys = ["Ação/ETF", "Renda Fixa", "Cripto", "Caixa"]
@@ -67,24 +67,28 @@ def _render_targets_and_rebalance(df_calc: pd.DataFrame):
             )
 
     s = float(sum(new_targets.values()))
-    if s <= 0:
-        st.warning("Defina pelo menos um alvo > 0.")
-        return
 
-    if abs(s - 100) > 0.01:
-        st.info(f"Soma = {s:.1f}%. Vou normalizar para 100% ao salvar.")
-        new_targets = {k: (v / s) * 100 for k, v in new_targets.items()}
+    # Aviso visual se a soma não for 100% (mas não bloqueia, só avisa)
+    if s > 0 and abs(s - 100) > 0.01:
+        st.caption(f"⚠️ A soma está em {s:.1f}%. O ideal é fechar em 100%.")
 
     if st.button("Salvar alvos", type="primary", use_container_width=True):
-        save_targets_db(DB_FILE, username, {k: round(float(v), 2) for k, v in new_targets.items()})
-        st.toast("Alvos salvos!", icon="✅")
-        st.rerun()
+        if s <= 0:
+            st.error("Defina pelo menos um alvo maior que 0.")
+        else:
+            # Normaliza para 100% se passar ou faltar um pouco, para evitar matemática quebrada
+            final_targets = {k: round(float(v), 2) for k, v in new_targets.items()}
+
+            # === CORREÇÃO: Ordem dos argumentos (username, targets, db_file) ===
+            save_targets_db(username, final_targets, DB_FILE)
+            st.toast("Alvos salvos com sucesso!", icon="✅")
+            st.rerun()
 
     # calcula atual vs alvo
     dfb = _classify_tipo_for_targets(df_calc)
     total = float(dfb["Total_BRL"].sum()) if not dfb.empty else 0.0
     if total <= 0:
-        st.warning("Sem dados de total para calcular alocação.")
+        # Se não tem saldo, não mostra rebalanceamento
         return
 
     cur_val = dfb.groupby("TipoBucket")["Total_BRL"].sum().to_dict()
@@ -107,23 +111,37 @@ def _render_targets_and_rebalance(df_calc: pd.DataFrame):
         return
 
     new_total = total + float(aporte)
+
+    # Se os alvos forem todos zero, não sugere nada
+    soma_alvos = sum([float(new_targets.get(k, 0)) for k in keys])
+    if soma_alvos <= 0:
+        st.info("Defina seus alvos acima para ver a sugestão.")
+        return
+
+    # Calcula quanto deveria ter em cada classe
     desired_val = {k: (float(new_targets.get(k, 0.0)) / 100.0) * new_total for k in keys}
+
+    # Calcula a diferença (o que falta)
     need = {k: desired_val.get(k, 0.0) - float(cur_val.get(k, 0.0)) for k in keys}
+
+    # Pega apenas quem precisa receber dinheiro (need > 0)
     pos = {k: max(0.0, v) for k, v in need.items()}
     sum_pos = float(sum(pos.values()))
 
     if sum_pos <= 0:
-        st.info("Você já está acima do alvo em tudo. Aporte livre 🙂")
+        st.info("Sua carteira já está balanceada ou acima dos alvos. Pode aportar onde preferir! 🙂")
         return
 
     recs = []
     for k in keys:
+        # Distribui o aporte proporcionalmente à "fome" de cada classe
         amt = float(aporte) * (pos.get(k, 0.0) / sum_pos) if sum_pos else 0.0
         if amt >= 1:
             recs.append({"Classe": k, "Aportar (R$)": round(amt, 2)})
 
-    st.dataframe(pd.DataFrame(recs).sort_values("Aportar (R$)", ascending=False),
-                 use_container_width=True, hide_index=True)
+    if recs:
+        st.dataframe(pd.DataFrame(recs).sort_values("Aportar (R$)", ascending=False),
+                     use_container_width=True, hide_index=True)
 
 
 def render_carteira():
@@ -161,7 +179,8 @@ def render_carteira():
 
                     st.session_state["carteira_df"] = df_loaded
                     st.session_state["wallet_mode"] = True
-                    save_user_data_db(username, st.session_state["carteira_df"], st.session_state.get("gastos_df", pd.DataFrame()))
+                    save_user_data_db(username, st.session_state["carteira_df"],
+                                      st.session_state.get("gastos_df", pd.DataFrame()))
                     st.rerun()
                 else:
                     st.error("Arquivo inválido ou vazio.")
@@ -171,7 +190,8 @@ def render_carteira():
             if st.button("Criar Nova Carteira", use_container_width=True):
                 st.session_state["carteira_df"] = pd.DataFrame(columns=CARTEIRA_COLS)
                 st.session_state["wallet_mode"] = True
-                save_user_data_db(username, st.session_state["carteira_df"], st.session_state.get("gastos_df", pd.DataFrame()))
+                save_user_data_db(username, st.session_state["carteira_df"],
+                                  st.session_state.get("gastos_df", pd.DataFrame()))
                 st.rerun()
 
         return
@@ -275,7 +295,8 @@ def render_carteira():
                     df_new = pd.concat([df, pd.DataFrame([new_asset])], ignore_index=True)
                     st.session_state["carteira_df"] = df_new
                     st.session_state["wallet_mode"] = True
-                    save_user_data_db(username, st.session_state["carteira_df"], st.session_state.get("gastos_df", pd.DataFrame()))
+                    save_user_data_db(username, st.session_state["carteira_df"],
+                                      st.session_state.get("gastos_df", pd.DataFrame()))
                     st.toast("Ativo adicionado!", icon="✅")
                     st.rerun()
                 else:
@@ -316,7 +337,8 @@ def render_carteira():
             edited_df = edited_df[CARTEIRA_COLS].copy()
 
             st.session_state["carteira_df"] = edited_df
-            save_user_data_db(username, st.session_state["carteira_df"], st.session_state.get("gastos_df", pd.DataFrame()))
+            save_user_data_db(username, st.session_state["carteira_df"],
+                              st.session_state.get("gastos_df", pd.DataFrame()))
             st.toast("Carteira salva!", icon="✅")
             st.rerun()
 
