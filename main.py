@@ -57,7 +57,7 @@ def mobile_menu_fab():
       @media (max-width: 768px) {
         .bee-fab-menu {
           position: fixed;
-          bottom: 18px;
+          bottom: 80px;
           right: 18px;
           z-index: 999999;
           background: rgba(255, 215, 0, 0.92);
