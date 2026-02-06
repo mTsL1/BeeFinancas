@@ -357,3 +357,5 @@ def render_carteira():
         st.session_state["wallet_mode"] = False
         save_user_data_db(username, st.session_state["carteira_df"], st.session_state.get("gastos_df", pd.DataFrame()))
         st.rerun()
+
+        # Forçando atualização da nuvem v1
