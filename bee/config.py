@@ -7,7 +7,7 @@ BEE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(BEE_DIR)
 
 ASSETS_DIR = os.path.join(PROJECT_DIR, "assets")
-LOGO_PATH = os.path.join(ASSETS_DIR, "logo.jpeg")
+LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")
 
 # mantém igual ao teu original (DB na raiz)
 DB_FILE = os.path.join(PROJECT_DIR, "bee_database.db")

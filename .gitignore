@@ -1,0 +1,27 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+*.db
+*.sqlite3
+
+# --- Pycharm ---
+.idea/
+
+# --- APK / Node.js / Android (Onde deu erro) ---
+node_modules/
+npm-debug.log
+dist/
+build/
+.transforms/
+android/app/build/
+android/.gradle/
+android/capacitor.settings.gradle
+ios/
+www/
