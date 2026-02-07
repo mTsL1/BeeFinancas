@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Bee Finanças</string>
-    <string name="title_activity_main">Bee Finanças</string>
-    <string name="package_name">com.beefinancas.app</string>
-    <string name="custom_url_scheme">com.beefinancas.app</string>
-</resources>
