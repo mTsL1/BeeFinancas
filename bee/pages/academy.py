@@ -1,6 +1,7 @@
-# bee/pages/academy.py
 import streamlit as st
+import random
 
+# Mantendo seus imports de lógica
 from bee.academy.questions import QUESTIONS
 from bee.academy.tips import TIPS
 from bee.academy.engine import calc_level, daily_question_id
@@ -14,199 +15,204 @@ from bee.academy.progress import (
 from bee.academy.dictionary import DICTIONARY, search_dictionary, topics_in_dictionary
 
 
+# =========================================================
+# 1. HELPERS LÓGICOS
+# =========================================================
 def _username() -> str:
     return st.session_state.get("username", "") or "guest"
 
 
 def _tip_by_id(tid: str):
     for t in TIPS:
-        if t.get("id") == tid:
-            return t
+        if t.get("id") == tid: return t
     return None
 
 
 def _question_by_id(qid: str):
     for q in QUESTIONS:
-        if q.get("id") == qid:
-            return q
+        if q.get("id") == qid: return q
     return None
 
 
 def _pick_question(mode: str, username: str) -> dict:
-    if not QUESTIONS:
-        return {}
+    if not QUESTIONS: return {}
     if mode == "daily":
         qid = daily_question_id(username, [q["id"] for q in QUESTIONS])
         q = _question_by_id(qid)
         return q or QUESTIONS[0]
-    import random
     return random.choice(QUESTIONS)
 
 
+# =========================================================
+# 2. CSS PREMIUM (ESTILO UNIFICADO)
+# =========================================================
 def _academy_css():
     st.markdown("""
     <style>
-      /* --- Correções de layout pra não sobrepor botões --- */
-      .academy-wrap { margin-top: 4px; }
-      .academy-title { font-size: 42px; font-weight: 900; line-height: 1.05; }
-      .academy-sub { opacity: 0.85; margin-top: 6px; }
-      .academy-level { margin-top: 10px; font-weight: 800; }
+      /* --- HEADER & KPIs --- */
+      .academy-header {
+        margin-bottom: 20px;
+      }
+      .academy-title { font-size: 38px; font-weight: 900; background: -webkit-linear-gradient(45deg, #ffd700, #ffae00); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+      .academy-sub { font-size: 16px; opacity: 0.8; margin-top: -5px; margin-bottom: 15px; }
 
-      .academy-card {
-        border-radius: 18px;
+      .kpi-container {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+      .kpi-card {
+        background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01));
+        border-top: 1px solid rgba(255,255,255,0.15);
+        border-radius: 14px;
+        padding: 12px;
+        text-align: center;
+        backdrop-filter: blur(10px);
+      }
+      .kpi-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: rgba(255,255,255,0.6); font-weight: 700; }
+      .kpi-value { font-size: 24px; font-weight: 800; color: #fff; }
+
+      /* --- FLASHCARD (DICAS) --- */
+      .flash-card {
+        background: linear-gradient(135deg, rgba(255,215,0,0.15), rgba(0,0,0,0.4));
+        border: 1px solid rgba(255,215,0,0.3);
+        border-radius: 20px;
+        padding: 30px;
+        text-align: center;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      }
+      .fc-topic { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #ffd700; margin-bottom: 10px; font-weight: 700; }
+      .fc-text { font-size: 20px; font-weight: 500; line-height: 1.5; color: #fff; }
+
+      /* --- DICTIONARY CARDS --- */
+      .dict-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
         padding: 18px;
-        border: 1px solid rgba(255,255,255,0.10);
-        background: rgba(0,0,0,0.22);
-        backdrop-filter: blur(6px);
         margin-bottom: 12px;
+        transition: all 0.2s;
       }
-      .academy-card .topic {
-        font-size: 12px;
-        opacity: 0.85;
-        font-weight: 900;
-        letter-spacing: .06em;
-        text-transform: uppercase;
-      }
-      .academy-card .h {
-        font-size: 22px;
-        font-weight: 900;
-        margin-top: 6px;
-      }
-      .academy-card .t {
-        margin-top: 10px;
-        font-size: 16px;
-        line-height: 1.35;
-      }
+      .dict-card:hover { transform: translateX(5px); border-color: rgba(255,215,0,0.3); background: rgba(255,255,255,0.06); }
+      .dict-term { font-size: 18px; font-weight: 800; color: #ffd700; display: flex; justify-content: space-between; align-items: center; }
+      .dict-def { margin-top: 8px; font-size: 14px; line-height: 1.4; color: #ddd; }
+      .dict-tag { font-size: 10px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; color: #aaa; margin-left: 10px; }
 
-      /* Tabs */
-      div[data-baseweb="tab-list"] { gap: 10px; flex-wrap: wrap; }
-      button[data-baseweb="tab"] {
-        padding: 8px 14px !important;
-        border-radius: 999px !important;
-      }
+      /* --- UI GERAL --- */
+      button { border-radius: 10px !important; }
 
-      /* Botões Streamlit: força altura e evita sobreposição */
-      .stButton { width: 100%; }
-      .stButton > button {
-        width: 100%;
-        min-height: 44px !important;
-        padding: 10px 14px !important;
-        border-radius: 14px !important;
-        white-space: normal !important;
-        line-height: 1.15 !important;
-        position: static !important;   /* mata qualquer position estranho */
-        margin: 0 !important;
-      }
-
-      /* Colunas com espaço */
-      div[data-testid="column"] { padding-top: 4px; padding-bottom: 4px; }
-
-      /* Alguns temas mexem no footer/containers; aqui garantimos fluxo normal */
-      section.main > div { padding-bottom: 30px; }
-
-      /* Dicionário */
-      .dict-term { font-size: 18px; font-weight: 900; }
-      .dict-tag { font-size: 12px; opacity: 0.8; font-weight: 800; }
-      .dict-def { margin-top: 8px; line-height: 1.35; }
-      .dict-why { margin-top: 10px; opacity: 0.95; }
-      .dict-formula { margin-top: 10px; font-family: monospace; opacity: 0.9; }
     </style>
     """, unsafe_allow_html=True)
 
+
+# =========================================================
+# 3. COMPONENTES VISUAIS
+# =========================================================
 
 def _header(username: str):
     prog = get_progress(username)
     level_name, next_xp, progress = calc_level(prog["xp"])
 
-    left, m1, m2, m3 = st.columns([1.6, 1, 1, 1], vertical_alignment="center")
-    with left:
-        st.markdown("<div class='academy-wrap'>", unsafe_allow_html=True)
+    st.markdown("<div class='academy-header'>", unsafe_allow_html=True)
+    c_title, c_lvl = st.columns([2, 1])
+    with c_title:
         st.markdown("<div class='academy-title'>🎓 Bee Academy</div>", unsafe_allow_html=True)
-        st.markdown("<div class='academy-sub'>Estudo rápido, prático e gamificado — 5 a 10 min por dia.</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='academy-sub'>Nível Atual: <b>{level_name}</b></div>", unsafe_allow_html=True)
+    with c_lvl:
+        if next_xp is None:
+            st.progress(100)
+            st.caption("Nível Máximo! 🐝👑")
+        else:
+            pct = int(progress * 100)
+            st.progress(progress)
+            st.caption(f"Próximo nível: {pct}% ({max(0, next_xp - prog['xp'])} XP restantes)")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    with m1:
-        st.metric("XP", prog["xp"])
-    with m2:
-        st.metric("🔥 Streak", prog["streak"])
-    with m3:
-        total = max(1, prog["total"])
-        acc = (prog["correct"] / total) * 100
-        st.metric("✅ Acerto", f"{acc:.0f}%")
+    # KPIs Cards
+    streak = prog["streak"]
+    xp = prog["xp"]
+    total = max(1, prog["total"])
+    acc = (prog["correct"] / total) * 100
 
-    st.markdown(f"<div class='academy-level'>Nível: {level_name}</div>", unsafe_allow_html=True)
-    if next_xp is None:
-        st.progress(1.0)
-        st.caption("Nível máximo 🐝👑")
-    else:
-        st.progress(progress)
-        st.caption(f"Próximo nível em **{max(0, next_xp - prog['xp'])} XP**")
+    st.markdown(f"""
+    <div class="kpi-container">
+      <div class="kpi-card">
+        <div class="kpi-label">XP TOTAL</div>
+        <div class="kpi-value">{xp}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">OFENSIVA (DIAS)</div>
+        <div class="kpi-value">🔥 {streak}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">PRECISÃO</div>
+        <div class="kpi-value">{acc:.0f}%</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def _tab_study(username: str):
-    st.subheader("📖 Estudar (Cards)")
+    st.subheader("📖 Flashcards")
 
     if "academy_tip_index" not in st.session_state:
         st.session_state["academy_tip_index"] = 0
 
-    if not TIPS:
-        st.info("Sem dicas cadastradas ainda.")
-        return
+    if not TIPS: return st.info("Sem dicas cadastradas.")
 
     idx = st.session_state["academy_tip_index"] % len(TIPS)
     tip = TIPS[idx]
     tip_id = tip.get("id", f"tip_{idx}")
-
-    st.markdown(
-        f"""
-        <div class="academy-card">
-          <div class="topic">{tip.get('topic','')}</div>
-          <div class="h">Dica Bee</div>
-          <div class="t">{tip.get('text','')}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
     fav = is_favorite(username, "tip", tip_id)
 
-    with st.container():
-        c1, c2, c3 = st.columns([1, 1, 1], gap="small")
-        with c1:
-            if st.button("✅ Entendi", use_container_width=True, key=f"academy_tip_ok_{tip_id}"):
-                st.session_state["academy_tip_index"] += 1
-                st.rerun()
-        with c2:
-            label = "⭐ Favoritar" if not fav else "★ Favoritado"
-            if st.button(label, use_container_width=True, key=f"academy_tip_fav_{tip_id}"):
-                toggle_favorite(username, "tip", tip_id)
-                st.rerun()
-        with c3:
-            if st.button("➡ Próxima", use_container_width=True, key=f"academy_tip_next_{tip_id}"):
-                st.session_state["academy_tip_index"] += 1
-                st.rerun()
+    # CARD VISUAL
+    st.markdown(f"""
+    <div class="flash-card">
+      <div class="fc-topic">{tip.get('topic', 'DICA RÁPIDA')}</div>
+      <div class="fc-text">"{tip.get('text', '')}"</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.divider()
-    st.markdown("### ⭐ Favoritos (Dicas)")
-    fav_ids = list_favorites(username, "tip")
-    if not fav_ids:
-        st.caption("Você ainda não favoritou nenhuma dica.")
-    else:
-        for tid in fav_ids[:50]:
-            t = _tip_by_id(tid)
-            if t:
-                st.write(f"• **{t.get('topic','')}** — {t.get('text','')}")
+    # CONTROLES
+    c1, c2, c3 = st.columns([1, 1, 1])
+    with c1:
+        if st.button("⬅ Anterior", use_container_width=True):
+            st.session_state["academy_tip_index"] -= 1
+            st.rerun()
+    with c2:
+        icon = "❤️" if fav else "🤍"
+        label = "Favoritado" if fav else "Favoritar"
+        if st.button(f"{icon} {label}", use_container_width=True, key=f"fav_tip_{tip_id}"):
+            toggle_favorite(username, "tip", tip_id)
+            st.rerun()
+    with c3:
+        if st.button("Próxima ➡", type="primary", use_container_width=True):
+            st.session_state["academy_tip_index"] += 1
+            st.rerun()
+
+    # LISTA FAVORITOS
+    with st.expander("⭐ Minhas Dicas Favoritas"):
+        fav_ids = list_favorites(username, "tip")
+        if not fav_ids:
+            st.caption("Nenhuma dica favoritada.")
+        else:
+            for tid in fav_ids:
+                t = _tip_by_id(tid)
+                if t: st.markdown(f"• **{t.get('topic')}**: {t.get('text')}")
 
 
 def _tab_quiz(username: str):
-    st.subheader("🧠 Quiz")
+    st.subheader("🧠 Quiz Rápido")
 
-    mode = st.radio(
-        "Modo",
-        ["Pergunta do dia", "Aleatório"],
-        horizontal=True,
-        key="academy_quiz_mode_radio"
-    )
+    # Seletor de modo mais limpo
+    mode = st.segmented_control("Modo de Jogo", ["Pergunta do dia", "Aleatório"], default="Pergunta do dia")
     qmode = "daily" if mode == "Pergunta do dia" else "random"
 
     if "academy_current_qid" not in st.session_state or st.session_state.get("academy_qmode") != qmode:
@@ -215,139 +221,119 @@ def _tab_quiz(username: str):
         st.session_state["academy_qmode"] = qmode
 
     q = _question_by_id(st.session_state.get("academy_current_qid", "")) or _pick_question(qmode, username)
-    if not q:
-        st.warning("Sem perguntas cadastradas.")
-        return
+    if not q: return st.warning("Sem perguntas.")
 
     qid = q.get("id", "q_unknown")
-
-    st.markdown(f"**Tópico:** `{q.get('topic','')}` &nbsp;&nbsp; | &nbsp;&nbsp; **Dificuldade:** {q.get('difficulty',1)}/3")
-    st.markdown(f"### {q.get('question','')}")
-
-    choice = st.radio(
-        "Escolha:",
-        q.get("options", []),
-        key=f"academy_choice_radio_{qid}"
-    )
-
     fav = is_favorite(username, "question", qid)
 
-    with st.container():
-        colA, colB, colC = st.columns([1.2, 1, 1], gap="small")
+    # Card da Pergunta
+    with st.container(border=True):
+        st.markdown(f"**Tema:** {q.get('topic', 'Geral')} | **Dificuldade:** {'⭐' * q.get('difficulty', 1)}")
+        st.markdown(f"### {q.get('question', '')}")
 
-        with colA:
-            if st.button("Responder", type="primary", use_container_width=True, key=f"academy_answer_{qid}"):
+        choice = st.radio("Sua resposta:", q.get("options", []), key=f"rad_{qid}")
+
+        c_check, c_fav, c_next = st.columns([2, 1, 1])
+        with c_check:
+            if st.button("Confirmar Resposta", type="primary", use_container_width=True, key=f"btn_{qid}"):
                 idx = q["options"].index(choice)
                 correct = (idx == q["answer"])
                 add_quiz_result(username, correct, xp_gain_correct=10)
-
                 if correct:
-                    st.success("✅ Correto! +10 XP")
+                    st.balloons()
+                    st.success(f"✅ Correto! {q.get('explanation', '')}")
                 else:
-                    st.error("❌ Errado! (sem XP)")
-                st.info(q.get("explanation", ""))
-
-        with colB:
-            label = "⭐ Favoritar" if not fav else "★ Favoritado"
-            if st.button(label, use_container_width=True, key=f"academy_q_fav_{qid}"):
+                    st.error(f"❌ Incorreto. {q.get('explanation', '')}")
+        with c_fav:
+            label = "Desfavoritar" if fav else "Favoritar"
+            if st.button(f"⭐ {label}", use_container_width=True, key=f"fav_q_{qid}"):
                 toggle_favorite(username, "question", qid)
                 st.rerun()
-
-        with colC:
-            if st.button("Nova pergunta", use_container_width=True, key=f"academy_new_q_{qid}"):
-                q2 = _pick_question(qmode, username)
+        with c_next:
+            if st.button("Pular ➡", use_container_width=True, key=f"skip_{qid}"):
+                q2 = _pick_question("random", username)
                 st.session_state["academy_current_qid"] = q2.get("id", "")
                 st.rerun()
 
-    st.divider()
-    st.markdown("### ⭐ Favoritos (Perguntas)")
-    fav_qids = list_favorites(username, "question")
-    if not fav_qids:
-        st.caption("Nenhuma pergunta favoritada ainda.")
-    else:
-        for qid2 in fav_qids[:50]:
-            qq = _question_by_id(qid2)
-            if qq:
-                st.write(f"• **{qq.get('topic','')}** — {qq.get('question','')}")
-
 
 def _tab_ideas():
-    st.subheader("💡 Ideias (Prático)")
-    st.write("• Reserva de emergência primeiro (liquidez + segurança).")
-    st.write("• Defina alocação alvo (ex.: 60% RF / 40% RV).")
-    st.write("• Crie regras: aportar todo mês e rebalancear 1x por trimestre.")
-    st.write("• Diversifique, mas sem virar bagunça.")
-    st.write("• Imposto, risco, taxa e liquidez: olhe SEMPRE.")
+    st.subheader("💡 Princípios do Investidor")
+    principles = [
+        ("Reserva de Emergência", "Antes de investir, tenha de 3 a 12 meses do seu custo de vida em liquidez diária."),
+        ("Diversificação", "Não coloque todos os ovos na mesma cesta. Misture Renda Fixa, Ações, FIIs e Exterior."),
+        ("Rebalanceamento",
+         "Defina % alvo para cada classe. Se um ativo subir muito, venda um pouco e compre o que ficou para trás."),
+        ("Aporte Constante", "O tempo no mercado ganha do 'timing' de mercado. Aporte todo mês sagradamente."),
+        ("Risco vs Retorno", "Não existe retorno alto sem risco alto. Desconfie de promessas de dinheiro fácil.")
+    ]
+
+    for title, desc in principles:
+        st.markdown(f"""
+        <div class="dict-card">
+            <div class="dict-term">{title}</div>
+            <div class="dict-def">{desc}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 def _tab_dictionary(username: str):
-    st.subheader("📚 Dicionário (Abreviações e indicadores)")
-    st.caption("Digite um termo (ex: P/L, P/VP, ROE, RSI) ou navegue por temas.")
+    st.subheader("📚 Glossário Financeiro")
 
-    q = st.text_input("Buscar termo", key="dict_search")
-    topics = ["Todos"] + topics_in_dictionary()
-
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        topic = st.selectbox("Tema", topics, key="dict_topic")
-    with col2:
-        only_fav = st.toggle("⭐ Só favoritos", value=False, key="dict_only_fav")
+    # Busca
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        q = st.text_input("Buscar termo", placeholder="Ex: SELIC, IPCA, ROI...", label_visibility="collapsed")
+    with c2:
+        topic = st.selectbox("Filtrar", ["Todos"] + topics_in_dictionary(), label_visibility="collapsed")
 
     results = search_dictionary(query=q, topic=None if topic == "Todos" else topic)
 
-    # filtro favoritos
-    if only_fav:
-        fav_ids = set(list_favorites(username, "dict"))
-        results = [d for d in results if d["id"] in fav_ids]
-
     if not results:
-        st.info("Nada encontrado. Tenta outro termo (ex: 'pl', 'roe', 'rsi').")
+        st.info("Nenhum termo encontrado.")
         return
 
-    st.markdown(f"**Resultados:** {len(results)}")
-
-    for item in results[:200]:
-        term = item["term"]
+    for item in results[:100]:  # Limitando para não travar
         iid = item["id"]
         fav = is_favorite(username, "dict", iid)
+        icon_fav = "★" if fav else "☆"
 
-        with st.container(border=True):
-            top = st.columns([1.2, 1])
-            with top[0]:
-                st.markdown(f"<div class='dict-term'>{term}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='dict-tag'>{item.get('topic','')}</div>", unsafe_allow_html=True)
-            with top[1]:
-                label = "⭐ Favoritar" if not fav else "★ Favoritado"
-                if st.button(label, use_container_width=True, key=f"dict_fav_{iid}"):
-                    toggle_favorite(username, "dict", iid)
-                    st.rerun()
+        # HTML Card customizado com botão invisível do Streamlit por cima ou lógica separada
+        # Aqui vamos usar containers nativos com markdown customizado dentro para manter interatividade
 
-            st.markdown(f"<div class='dict-def'><b>O que é:</b> {item.get('definition','')}</div>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="dict-card">
+            <div class="dict-term">
+                {item['term']} <span class="dict-tag">{item.get('topic', '')}</span>
+            </div>
+            <div class="dict-def">{item.get('definition', '')}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-            if item.get("why_it_matters"):
-                st.markdown(f"<div class='dict-why'><b>Por que importa:</b> {item['why_it_matters']}</div>", unsafe_allow_html=True)
-
-            if item.get("how_to_use"):
-                st.markdown(f"<div class='dict-why'><b>Como usar:</b> {item['how_to_use']}</div>", unsafe_allow_html=True)
-
-            if item.get("formula"):
-                st.markdown(f"<div class='dict-formula'><b>Fórmula:</b> {item['formula']}</div>", unsafe_allow_html=True)
-
-            if item.get("notes"):
-                st.caption(item["notes"])
+        # Botões de ação discretos abaixo do card
+        col_act, _ = st.columns([1, 4])
+        with col_act:
+            label = "Remover Favorito" if fav else "Favoritar"
+            if st.button(f"{icon_fav} {label}", key=f"dict_btn_{iid}", help="Salvar termo"):
+                toggle_favorite(username, "dict", iid)
+                st.rerun()
 
 
+# =========================================================
+# MAIN RENDER
+# =========================================================
 def render_academy():
     _academy_css()
     username = _username()
+
+    # Header unificado
     _header(username)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📖 Estudar", "🧠 Quiz", "💡 Ideias", "📚 Dicionário"])
-    with tab1:
-        _tab_study(username)
-    with tab2:
-        _tab_quiz(username)
-    with tab3:
-        _tab_ideas()
-    with tab4:
-        _tab_dictionary(username)
+    st.markdown("---")
+
+    # Abas com ícones
+    tab1, tab2, tab3, tab4 = st.tabs(["📖 Estudar", "🧠 Quiz", "💡 Princípios", "📚 Glossário"])
+
+    with tab1: _tab_study(username)
+    with tab2: _tab_quiz(username)
+    with tab3: _tab_ideas()
+    with tab4: _tab_dictionary(username)

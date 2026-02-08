@@ -5,13 +5,14 @@ from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
 
+# =========================================================
+# IMPORTS DO SEU PROJETO (BEE)
+# =========================================================
 from bee.config import DB_FILE
 from bee.safe_imports import px
 from bee.formatters import fmt_money_brl
-
 from bee.db import (
-    save_user_data_db,
-    get_budgets_db, set_budget_db,
+    save_user_data_db, get_budgets_db, set_budget_db,
     list_rules_db, add_rule_db,
     list_recurring_db, add_recurring_db, set_recurring_active_db
 )
@@ -20,7 +21,7 @@ GASTOS_COLS = ["Data", "Categoria", "Descricao", "Tipo", "Valor", "Pagamento"]
 
 
 # =========================================================
-# BLINDADO: nunca use .dt direto em coluna possivelmente object
+# 1. HELPERS E CSS (VISUAL UNIFICADO)
 # =========================================================
 def _to_dt(series: pd.Series) -> pd.Series:
     return pd.to_datetime(series, errors="coerce", dayfirst=True)
@@ -34,88 +35,120 @@ def _month_key(dt: datetime) -> str:
     return dt.strftime("%Y-%m")
 
 
+def _compact_brl(v: float) -> str:
+    # Helper visual para números grandes
+    try:
+        v = float(v)
+    except:
+        return "R$ 0"
+    return fmt_money_brl(v, 2)
+
+
+def _apply_unified_css():
+    st.markdown("""
+        <style>
+          /* --- KPI CARDS (PADRÃO GLOBAL) --- */
+          .kpi-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr); /* 4 colunas no controle */
+            gap: 15px;
+            margin-bottom: 25px;
+          }
+          .kpi-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01));
+            border-top: 1px solid rgba(255,255,255,0.15);
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center; justify-content: center; text-align: center;
+            min-height: 100px; backdrop-filter: blur(10px);
+          }
+          .kpi-label {
+            font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+            color: rgba(255,255,255,0.6); margin-bottom: 8px; font-weight: 600;
+          }
+          .kpi-value {
+            font-size: 24px; font-weight: 800; color: #ffffff; line-height: 1.1;
+          }
+
+          /* --- BOTÕES DE NAVEGAÇÃO UNIFORMES --- */
+          div[data-testid="column"] > div > div > div > button {
+             width: 100% !important; height: 60px !important;
+             border: 1px solid rgba(255,255,255,0.08) !important;
+             background: rgba(255, 255, 255, 0.03) !important;
+             border-radius: 12px !important; transition: all 0.2s ease !important;
+             font-weight: 600 !important; font-size: 15px !important;
+          }
+          div[data-testid="column"] > div > div > div > button:hover {
+             background: rgba(255, 255, 255, 0.08) !important;
+             border-color: rgba(255,255,255,0.2) !important; transform: translateY(-2px);
+          }
+
+          /* Responsividade */
+          @media (max-width: 900px){ .kpi-container { grid-template-columns: 1fr 1fr; } }
+          @media (max-width: 600px){ .kpi-container { grid-template-columns: 1fr; } }
+        </style>
+    """, unsafe_allow_html=True)
+
+
 # =========================================================
-# Compat helpers (pra não quebrar se a ordem do db variar)
+# 2. DATA HANDLERS (SEU CÓDIGO MANTIDO)
 # =========================================================
 def _get_budgets(username: str) -> dict:
     try:
-        return get_budgets_db(username, DB_FILE)  # type: ignore
-    except Exception:
-        try:
-            return get_budgets_db(DB_FILE, username)  # type: ignore
-        except Exception:
-            return {}
+        return get_budgets_db(username, DB_FILE)
+    except:
+        return get_budgets_db(DB_FILE, username)
 
 
 def _set_budget(username: str, categoria: str, budget: float):
     try:
-        set_budget_db(username, categoria, budget, DB_FILE)  # type: ignore
-    except Exception:
-        try:
-            set_budget_db(DB_FILE, username, categoria, budget)  # type: ignore
-        except Exception:
-            pass
+        set_budget_db(username, categoria, budget, DB_FILE)
+    except:
+        set_budget_db(DB_FILE, username, categoria, budget)
 
 
 def _list_rules(username: str) -> list[dict]:
     try:
-        return list_rules_db(username, DB_FILE)  # type: ignore
-    except Exception:
-        try:
-            return list_rules_db(DB_FILE, username)  # type: ignore
-        except Exception:
-            return []
+        return list_rules_db(username, DB_FILE)
+    except:
+        return list_rules_db(DB_FILE, username)
 
 
 def _add_rule(username: str, pattern: str, categoria: str, active: int = 1):
     try:
-        add_rule_db(username, pattern, categoria, active, DB_FILE)  # type: ignore
-    except Exception:
-        try:
-            add_rule_db(DB_FILE, username, pattern, categoria, active)  # type: ignore
-        except Exception:
-            pass
+        add_rule_db(username, pattern, categoria, active, DB_FILE)
+    except:
+        add_rule_db(DB_FILE, username, pattern, categoria, active)
 
 
 def _list_recurring(username: str) -> list[dict]:
     try:
-        return list_recurring_db(username, DB_FILE)  # type: ignore
-    except Exception:
-        try:
-            return list_recurring_db(DB_FILE, username)  # type: ignore
-        except Exception:
-            return []
+        return list_recurring_db(username, DB_FILE)
+    except:
+        return list_recurring_db(DB_FILE, username)
 
 
-def _add_recurring(username: str, categoria: str, desc: str, tipo: str, val: float, pay: str, dom: int, active: int = 1):
+def _add_recurring(username: str, categoria: str, desc: str, tipo: str, val: float, pay: str, dom: int,
+                   active: int = 1):
     try:
-        add_recurring_db(username, desc, categoria, tipo, val, pay, dom, active, DB_FILE)  # type: ignore
-    except Exception:
-        try:
-            add_recurring_db(DB_FILE, username, categoria, desc, tipo, val, pay, dom, active)  # type: ignore
-        except Exception:
-            pass
+        add_recurring_db(username, desc, categoria, tipo, val, pay, dom, active, DB_FILE)
+    except:
+        add_recurring_db(DB_FILE, username, categoria, desc, tipo, val, pay, dom, active)
 
 
 def _set_recurring_active(username: str, rec_id: int, active: int):
     try:
-        set_recurring_active_db(username, rec_id, active, DB_FILE)  # type: ignore
-    except Exception:
-        try:
-            set_recurring_active_db(DB_FILE, username, rec_id, active)  # type: ignore
-        except Exception:
-            pass
+        set_recurring_active_db(username, rec_id, active, DB_FILE)
+    except:
+        set_recurring_active_db(DB_FILE, username, rec_id, active)
 
 
-# =========================================================
-# Data helpers
-# =========================================================
 def _ensure_gastos_columns(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or len(df) == 0:
-        return pd.DataFrame(columns=GASTOS_COLS)
-
+    if df is None or len(df) == 0: return pd.DataFrame(columns=GASTOS_COLS)
     df = df.copy()
-
     rename_map = {}
     for col in df.columns:
         c = str(col).strip().lower()
@@ -123,92 +156,60 @@ def _ensure_gastos_columns(df: pd.DataFrame) -> pd.DataFrame:
             rename_map[col] = "Data"
         elif c in ["categoria", "category"]:
             rename_map[col] = "Categoria"
-        elif c in ["descricao", "descrição", "description", "desc", "historico", "histórico"]:
+        elif c in ["descricao", "descrição", "description", "historico"]:
             rename_map[col] = "Descricao"
         elif c in ["tipo", "type"]:
             rename_map[col] = "Tipo"
         elif c in ["valor", "value", "amount", "total"]:
             rename_map[col] = "Valor"
-        elif c in ["pagamento", "payment", "forma", "forma_pagamento"]:
+        elif c in ["pagamento", "payment", "forma"]:
             rename_map[col] = "Pagamento"
-
-    if rename_map:
-        df.rename(columns=rename_map, inplace=True)
-
+    if rename_map: df.rename(columns=rename_map, inplace=True)
     for col in GASTOS_COLS:
-        if col not in df.columns:
-            df[col] = ""
-
+        if col not in df.columns: df[col] = ""
     df = df[GASTOS_COLS]
-
     df["Data"] = _to_dt(df["Data"])
     df = df.dropna(subset=["Data"])
-
     if df["Valor"].dtype == object:
-        df["Valor"] = (
-            df["Valor"].astype(str)
-            .str.replace("R$", "", regex=False)
-            .str.replace(".", "", regex=False)
-            .str.replace(",", ".", regex=False)
-            .str.strip()
-        )
+        df["Valor"] = df["Valor"].astype(str).str.replace("R$", "", regex=False).str.replace(".", "",
+                                                                                             regex=False).str.replace(
+            ",", ".", regex=False).str.strip()
     df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce").fillna(0.0)
-
     df["Tipo"] = df["Tipo"].astype(str).str.strip()
     df.loc[df["Tipo"].str.lower().isin(["saida", "saída"]), "Tipo"] = "Saída"
     df.loc[df["Tipo"].str.lower().isin(["entrada"]), "Tipo"] = "Entrada"
     df.loc[~df["Tipo"].isin(["Entrada", "Saída"]), "Tipo"] = "Saída"
-
     df["Categoria"] = df["Categoria"].astype(str).replace("nan", "").str.strip()
     df.loc[df["Categoria"] == "", "Categoria"] = "Outros"
-
     df["Descricao"] = df["Descricao"].astype(str).replace("nan", "").str.strip()
     df["Pagamento"] = df["Pagamento"].astype(str).replace("nan", "").str.strip()
     df.loc[df["Pagamento"] == "", "Pagamento"] = "Pix"
-
     return df
 
 
 def _append_rows(gastos_df: pd.DataFrame, rows: list[dict]) -> pd.DataFrame:
     base = _ensure_gastos_columns(gastos_df)
-    if not rows:
-        return base
-    add = pd.DataFrame(rows)
-    add = _ensure_gastos_columns(add)
-    out = pd.concat([base, add], ignore_index=True)
-    out = _ensure_gastos_columns(out)
-    return out
+    if not rows: return base
+    return _ensure_gastos_columns(pd.concat([base, _ensure_gastos_columns(pd.DataFrame(rows))], ignore_index=True))
 
 
 def _spent_by_category_month(gastos_df: pd.DataFrame, month_key: str) -> dict:
     df = _ensure_gastos_columns(gastos_df)
-    if df.empty:
-        return {}
+    if df.empty: return {}
     dfm = df[_ym(df["Data"]) == month_key]
     dfm = dfm[dfm["Tipo"].astype(str).str.lower() == "saída"]
-    if dfm.empty:
-        return {}
+    if dfm.empty: return {}
     return dfm.groupby("Categoria")["Valor"].sum().to_dict()
 
 
-# =========================================================
-# Recurring log (anti-duplicação)
-# =========================================================
+# --- Recorrência ---
 def _recurring_was_applied(username: str, rec_id: int, yyyymm: str) -> bool:
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS recurring_log (
-            username TEXT,
-            recurring_id INTEGER,
-            yyyymm TEXT,
-            PRIMARY KEY (username, recurring_id, yyyymm)
-        )
-    """)
     c.execute(
-        "SELECT 1 FROM recurring_log WHERE username=? AND recurring_id=? AND yyyymm=?",
-        (username, int(rec_id), yyyymm)
-    )
+        "CREATE TABLE IF NOT EXISTS recurring_log (username TEXT, recurring_id INTEGER, yyyymm TEXT, PRIMARY KEY (username, recurring_id, yyyymm))")
+    c.execute("SELECT 1 FROM recurring_log WHERE username=? AND recurring_id=? AND yyyymm=?",
+              (username, int(rec_id), yyyymm))
     ok = c.fetchone() is not None
     conn.close()
     return ok
@@ -217,18 +218,8 @@ def _recurring_was_applied(username: str, rec_id: int, yyyymm: str) -> bool:
 def _mark_recurring_applied(username: str, rec_id: int, yyyymm: str):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS recurring_log (
-            username TEXT,
-            recurring_id INTEGER,
-            yyyymm TEXT,
-            PRIMARY KEY (username, recurring_id, yyyymm)
-        )
-    """)
-    c.execute(
-        "INSERT OR IGNORE INTO recurring_log(username, recurring_id, yyyymm) VALUES(?,?,?)",
-        (username, int(rec_id), yyyymm)
-    )
+    c.execute("INSERT OR IGNORE INTO recurring_log(username, recurring_id, yyyymm) VALUES(?,?,?)",
+              (username, int(rec_id), yyyymm))
     conn.commit()
     conn.close()
 
@@ -236,562 +227,338 @@ def _mark_recurring_applied(username: str, rec_id: int, yyyymm: str):
 def _apply_recurring_for_month(username: str, gastos_df: pd.DataFrame, yyyymm: str) -> tuple[pd.DataFrame, int]:
     rec_list = _list_recurring(username)
     df_rec = pd.DataFrame(rec_list)
-    if df_rec.empty:
-        return _ensure_gastos_columns(gastos_df), 0
-
+    if df_rec.empty: return _ensure_gastos_columns(gastos_df), 0
     created = 0
     rows = []
     year, month = int(yyyymm.split("-")[0]), int(yyyymm.split("-")[1])
-
     for _, r in df_rec.iterrows():
         rec_id = int(r.get("rec_id") or r.get("id") or 0)
-        if int(r.get("active", 1)) != 1:
-            continue
-        if _recurring_was_applied(username, rec_id, yyyymm):
-            continue
-
+        if int(r.get("active", 1)) != 1: continue
+        if _recurring_was_applied(username, rec_id, yyyymm): continue
         dom = int(r.get("day_of_month") or r.get("Dia") or 5)
-        dom = max(1, min(28, dom))
-        dt = datetime(year, month, dom)
-
-        cat_val = r.get("categoria") or r.get("Categoria") or "Outros"
-        desc_val = r.get("descricao") or r.get("Descrição") or r.get("descricao") or ""
-        tipo_val = r.get("tipo") or r.get("Tipo") or "Saída"
-        val_val = float(r.get("valor") or r.get("Valor") or 0.0)
-        pay_val = r.get("pagamento") or r.get("Pagamento") or "Pix"
-
+        dt = datetime(year, month, max(1, min(28, dom)))
         rows.append({
-            "Data": dt,
-            "Categoria": str(cat_val),
-            "Descricao": str(desc_val),
-            "Tipo": "Entrada" if str(tipo_val).lower() == "entrada" else "Saída",
-            "Valor": float(val_val),
-            "Pagamento": str(pay_val),
+            "Data": dt, "Categoria": str(r.get("categoria") or "Outros"), "Descricao": str(r.get("descricao") or ""),
+            "Tipo": "Entrada" if str(r.get("tipo")).lower() == "entrada" else "Saída",
+            "Valor": float(r.get("valor") or 0.0),
+            "Pagamento": str(r.get("pagamento") or "Pix")
         })
         _mark_recurring_applied(username, rec_id, yyyymm)
         created += 1
-
-    if created > 0:
-        gastos_df = _append_rows(gastos_df, rows)
-
+    if created > 0: gastos_df = _append_rows(gastos_df, rows)
     return _ensure_gastos_columns(gastos_df), created
 
 
-# =========================================================
-# CSV + rules
-# =========================================================
+# --- Import CSV ---
 def _smart_load_csv(uploaded_file) -> pd.DataFrame | None:
     uploaded_file.seek(0)
     try:
-        df = pd.read_csv(uploaded_file)
-        if df is not None and len(df.columns) > 1:
-            return df
-    except Exception:
+        return pd.read_csv(uploaded_file)
+    except:
         pass
-
     uploaded_file.seek(0)
     try:
-        df = pd.read_csv(uploaded_file, sep=";")
-        if df is not None and len(df.columns) > 1:
-            return df
-    except Exception:
+        return pd.read_csv(uploaded_file, sep=";")
+    except:
         pass
-
     uploaded_file.seek(0)
     try:
         return pd.read_csv(uploaded_file, sep=";", encoding="latin1")
-    except Exception:
+    except:
         return None
 
 
 def _pick_pattern(text: str) -> str:
-    s = str(text or "").lower()
-    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
     parts = [p.strip() for p in s.split() if len(p.strip()) >= 4]
     return parts[0] if parts else (s[:12].strip() or "rule")
 
 
 def _apply_rules(rules_df: pd.DataFrame, desc: str) -> str:
     d = (desc or "").lower()
-    if rules_df is None or rules_df.empty:
-        return "Outros"
-
-    try:
-        df = rules_df.copy()
-        if "active" in df.columns:
-            df = df.sort_values("active", ascending=False)
-    except Exception:
-        df = rules_df
-
-    for _, r in df.iterrows():
-        if int(r.get("active", 1)) == 0:
-            continue
-        p = str(r.get("pattern", "")).lower().strip()
-        if p and p in d:
-            return str(r.get("categoria", "Outros"))
+    if rules_df is None or rules_df.empty: return "Outros"
+    for _, r in rules_df.iterrows():
+        if int(r.get("active", 1)) == 0: continue
+        if str(r.get("pattern", "")).lower().strip() in d: return str(r.get("categoria", "Outros"))
     return "Outros"
 
 
 # =========================================================
-# UI helpers
+# 3. INTERFACE (MODAL & VIEWS)
 # =========================================================
+
+@st.dialog("➕ Nova transação")
+def _show_new_tx_dialog(username: str):
+    st.caption("Adicione um lançamento rápido.")
+    df_g = _ensure_gastos_columns(st.session_state.get("gastos_df", pd.DataFrame(columns=GASTOS_COLS)))
+    today = datetime.now()
+
+    default_cats = ["Moradia", "Alimentação", "Transporte", "Lazer", "Investimento", "Salário", "Saúde", "Educação",
+                    "Outros"]
+    existing_cats = df_g["Categoria"].dropna().unique().tolist() if not df_g.empty else []
+    all_cats = sorted(list(set(default_cats + existing_cats))) + ["➕ Nova (Digitar abaixo)"]
+
+    mode = st.segmented_control("Data", options=["Hoje", "Ontem", "📅 Escolher"], default="Hoje", key="dlg_tx_date_mode")
+    picked_date = today.date()
+    if mode == "Ontem":
+        picked_date = (today - timedelta(days=1)).date()
+    elif mode == "📅 Escolher":
+        picked_date = st.date_input("Escolher data", value=today.date(), key="dlg_tx_date_pick")
+
+    c1, c2, c3 = st.columns([1, 1.2, 1])
+    d_tipo = c1.selectbox("Tipo", ["Saída", "Entrada"], key="dlg_tx_tipo")
+    d_pag = c2.selectbox("Pagamento", ["Pix", "Crédito", "Débito", "Dinheiro"], key="dlg_tx_pag")
+    d_val = c3.number_input("Valor (R$)", min_value=0.0, step=10.0, key="dlg_tx_val")
+
+    c4, c5 = st.columns([1.2, 1])
+    d_cat_select = c4.selectbox("Categoria", all_cats, key="dlg_tx_cat_sel")
+    d_cat_input = c4.text_input("Nova categoria", placeholder="Ex: Pet", key="dlg_tx_cat_in")
+    d_desc = c5.text_input("Descrição", placeholder="Ex: Mercado / Uber", key="dlg_tx_desc")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    a, b = st.columns(2)
+    with a:
+        if st.button("Salvar", type="primary", use_container_width=True, key="dlg_tx_save"):
+            final_cat = d_cat_input if (d_cat_select == "➕ Nova (Digitar abaixo)" and d_cat_input) else d_cat_select
+            if final_cat == "➕ Nova (Digitar abaixo)": final_cat = "Outros"
+            new_row = {
+                "Data": pd.to_datetime(picked_date), "Categoria": final_cat, "Descricao": d_desc.strip(),
+                "Tipo": "Entrada" if d_tipo == "Entrada" else "Saída", "Valor": float(d_val), "Pagamento": d_pag
+            }
+            df_new = _append_rows(df_g, [new_row])
+            st.session_state["gastos_df"] = df_new
+            save_user_data_db(username, st.session_state.get("carteira_df", pd.DataFrame()),
+                              st.session_state["gastos_df"])
+            st.toast("Transação salva!", icon="✅")
+            st.rerun()
+    with b:
+        if st.button("Cancelar", use_container_width=True, key="dlg_tx_cancel"): st.rerun()
+
+
 def _nav_btn(label: str, tab_key: str, icon: str = ""):
     active = st.session_state.get("controle_tab", "Dashboard") == tab_key
     caption = f"{icon} {label}".strip()
-    if active:
-        if st.button(caption, type="primary", use_container_width=True, key=f"ctl_nav_{tab_key}_on"):
-            st.session_state["controle_tab"] = tab_key
-            # CORREÇÃO AQUI: Garante que o popup fecha ao navegar
-            st.session_state["controle_open_new_popup"] = False
-            st.rerun()
-    else:
-        if st.button(caption, use_container_width=True, key=f"ctl_nav_{tab_key}_off"):
-            st.session_state["controle_tab"] = tab_key
-            # CORREÇÃO AQUI: Garante que o popup fecha ao navegar
-            st.session_state["controle_open_new_popup"] = False
-            st.rerun()
+    if st.button(caption, use_container_width=True, key=f"ctl_nav_{tab_key}"):
+        st.session_state["controle_tab"] = tab_key
+        st.rerun()
 
 
-def _open_new_tx_popup():
-    st.session_state["controle_open_new_popup"] = True
+# --- VIEWS ---
 
-
-def _close_new_tx_popup():
-    st.session_state["controle_open_new_popup"] = False
-
-
-def _render_new_tx_dialog(username: str):
-    """
-    POPUP (modal) sem abrir calendário automaticamente:
-    - Hoje / Ontem / Escolher
-    - Só abre datepicker se escolher "📅 Escolher data"
-    """
-    df_g = _ensure_gastos_columns(st.session_state.get("gastos_df", pd.DataFrame(columns=GASTOS_COLS)))
-    today = datetime.now()
-
-    default_cats = ["Moradia", "Alimentação", "Transporte", "Lazer", "Investimento", "Salário", "Saúde", "Educação", "Outros"]
-    existing_cats = df_g["Categoria"].dropna().unique().tolist() if not df_g.empty else []
-    all_cats = sorted(list(set(default_cats + existing_cats)))
-    all_cats.append("➕ Nova (Digitar abaixo)")
-
-    @st.dialog("➕ Nova transação")
-    def _dlg():
-        st.caption("Adicione um lançamento rápido (entrada ou saída).")
-
-        # ✅ Atalho de data (evita ficar com calendário aberto/bugado)
-        mode = st.segmented_control(
-            "Data",
-            options=["Hoje", "Ontem", "📅 Escolher"],
-            default="Hoje",
-            key="dlg_tx_date_mode",
-        )
-
-        picked_date = today.date()
-        if mode == "Ontem":
-            picked_date = (today - timedelta(days=1)).date()
-        elif mode == "📅 Escolher":
-            # Só abre o datepicker se o usuário pedir
-            picked_date = st.date_input("Escolher data", value=today.date(), key="dlg_tx_date_pick")
-
-        c1, c2, c3 = st.columns([1, 1.2, 1])
-        d_tipo = c1.selectbox("Tipo", ["Saída", "Entrada"], key="dlg_tx_tipo")
-        d_pag = c2.selectbox("Pagamento", ["Pix", "Crédito", "Débito", "Dinheiro"], key="dlg_tx_pag")
-        d_val = c3.number_input("Valor (R$)", min_value=0.0, step=10.0, key="dlg_tx_val")
-
-        c4, c5 = st.columns([1.2, 1])
-        d_cat_select = c4.selectbox("Categoria", all_cats, key="dlg_tx_cat_sel")
-        d_cat_input = c4.text_input("Nova categoria", placeholder="Ex: Pet", key="dlg_tx_cat_in")
-        d_desc = c5.text_input("Descrição", placeholder="Ex: Mercado / Uber / Conta de luz", key="dlg_tx_desc")
-
-        a, b = st.columns(2)
-        with a:
-            if st.button("Salvar", type="primary", use_container_width=True, key="dlg_tx_save"):
-                final_cat = d_cat_input if (d_cat_select == "➕ Nova (Digitar abaixo)" and d_cat_input) else d_cat_select
-                if final_cat == "➕ Nova (Digitar abaixo)":
-                    final_cat = "Outros"
-
-                new_row = {
-                    "Data": pd.to_datetime(picked_date),
-                    "Categoria": final_cat,
-                    "Descricao": d_desc.strip(),
-                    "Tipo": "Entrada" if d_tipo == "Entrada" else "Saída",
-                    "Valor": float(d_val),
-                    "Pagamento": d_pag,
-                }
-
-                df_new = _append_rows(df_g, [new_row])
-                st.session_state["gastos_df"] = df_new
-                save_user_data_db(username, st.session_state.get("carteira_df", pd.DataFrame()), st.session_state["gastos_df"])
-                st.toast("Transação salva!", icon="✅")
-                _close_new_tx_popup()
-                st.rerun()
-
-        with b:
-            if st.button("Cancelar", use_container_width=True, key="dlg_tx_cancel"):
-                _close_new_tx_popup()
-                st.rerun()
-
-    _dlg()
-
-
-# =========================================================
-# Views
-# =========================================================
 def _render_dashboard(username: str):
     st.subheader("📊 Dashboard do mês")
-
     df_g = _ensure_gastos_columns(st.session_state.get("gastos_df", pd.DataFrame(columns=GASTOS_COLS)))
     today = datetime.now()
     mes = _month_key(today)
-
     dfm = df_g[_ym(df_g["Data"]) == mes].copy()
 
     total_ent = float(dfm[dfm["Tipo"] == "Entrada"]["Valor"].sum()) if not dfm.empty else 0.0
     total_sai = float(dfm[dfm["Tipo"] == "Saída"]["Valor"].sum()) if not dfm.empty else 0.0
-    saldo = total_ent - total_sai
 
-    dias_passados = max(1, today.day)
-    gasto_por_dia = (total_sai / dias_passados) if dias_passados > 0 else 0.0
-
+    # Previsão
+    dias = max(1, today.day)
     try:
-        next_month = datetime(today.year + (1 if today.month == 12 else 0), 1 if today.month == 12 else today.month + 1, 1)
-        last_day = (next_month - pd.Timedelta(days=1)).day
-    except Exception:
+        last_day = (datetime(today.year + (1 if today.month == 12 else 0), 1 if today.month == 12 else today.month + 1,
+                             1) - timedelta(days=1)).day
+    except:
         last_day = 30
+    prev_gasto = (total_sai / dias) * last_day if dias > 0 else 0.0
 
-    previsao_gasto = gasto_por_dia * last_day
-    previsao_saldo = total_ent - previsao_gasto
+    # HTML CARDS para ficarem iguais à carteira
+    st.markdown(f"""
+    <div class="kpi-container">
+      <div class="kpi-card"><div class="kpi-label">RECEITAS (MÊS)</div><div class="kpi-value" style="color:#4ade80;">{_compact_brl(total_ent)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">DESPESAS (MÊS)</div><div class="kpi-value" style="color:#f87171;">{_compact_brl(total_sai)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">SALDO ATUAL</div><div class="kpi-value">{_compact_brl(total_ent - total_sai)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">SALDO PREVISTO</div><div class="kpi-value">{_compact_brl(total_ent - prev_gasto)}</div></div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Receitas (mês)", fmt_money_brl(total_ent, 2))
-    c2.metric("Despesas (mês)", fmt_money_brl(total_sai, 2))
-    c3.metric("Saldo (mês)", fmt_money_brl(saldo, 2))
-    c4.metric("Saldo previsto", fmt_money_brl(previsao_saldo, 2))
-
-    st.caption("Previsão baseada na média diária de despesas até hoje.")
-
-    st.markdown("### 🔥 Top gastos por categoria")
-    if dfm.empty:
-        st.info("Sem lançamentos neste mês ainda.")
-        return
-
-    df_cat = dfm[dfm["Tipo"] == "Saída"].groupby("Categoria")["Valor"].sum().reset_index()
-    df_cat = df_cat.sort_values("Valor", ascending=False)
-
-    left, right = st.columns([1.2, 1])
-    with left:
-        st.dataframe(
-            df_cat.head(12),
-            use_container_width=True,
-            hide_index=True,
-            column_config={"Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f")},
-        )
-    with right:
-        if px is not None and not df_cat.empty:
-            fig = px.pie(df_cat.head(10), values="Valor", names="Categoria", hole=0.55)
-            fig.update_layout(height=320, paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig, use_container_width=True)
+    st.markdown("### 🔥 Top gastos")
+    if not dfm.empty:
+        df_cat = dfm[dfm["Tipo"] == "Saída"].groupby("Categoria")["Valor"].sum().reset_index().sort_values("Valor",
+                                                                                                           ascending=False)
+        l, r = st.columns([1.2, 1])
+        with l:
+            st.dataframe(df_cat.head(12), use_container_width=True, hide_index=True,
+                         column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")})
+        with r:
+            if px:
+                fig = px.pie(df_cat.head(10), values="Valor", names="Categoria", hole=0.55)
+                fig.update_layout(height=320, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Sem dados neste mês.")
 
 
 def _render_extrato(username: str):
     st.subheader("📒 Extrato")
-
     df_g = _ensure_gastos_columns(st.session_state.get("gastos_df", pd.DataFrame(columns=GASTOS_COLS)))
     today = datetime.now()
-
-    if df_g.empty:
-        meses_disp = [_month_key(today)]
-    else:
-        meses_disp = sorted(list(set(_ym(df_g["Data"]).dropna().tolist())))
-        if not meses_disp:
-            meses_disp = [_month_key(today)]
-
-    mes_atual = _month_key(today)
-    idx_mes = meses_disp.index(mes_atual) if mes_atual in meses_disp else (len(meses_disp) - 1)
+    meses_disp = sorted(list(set(_ym(df_g["Data"]).dropna().tolist()))) if not df_g.empty else [_month_key(today)]
 
     col_sel, col_btn = st.columns([2, 1])
-    with col_sel:
-        mes = st.selectbox("📅 Mês", meses_disp, index=idx_mes, key="controle_mes")
-    with col_btn:
-        if st.button("🔁 Gerar recorrências do mês", use_container_width=True, key="controle_btn_rec"):
-            df_new, created = _apply_recurring_for_month(username, df_g, mes)
-            st.session_state["gastos_df"] = df_new
-            save_user_data_db(username, st.session_state.get("carteira_df", pd.DataFrame()), st.session_state["gastos_df"])
-            st.toast(f"Recorrências criadas: {created}", icon="🔁")
-            st.rerun()
+    mes = col_sel.selectbox("📅 Mês", meses_disp, index=len(meses_disp) - 1, key="controle_mes")
+    if col_btn.button("🔁 Gerar recorrentes", use_container_width=True):
+        df_new, created = _apply_recurring_for_month(username, df_g, mes)
+        st.session_state["gastos_df"] = df_new
+        save_user_data_db(username, st.session_state.get("carteira_df", pd.DataFrame()), st.session_state["gastos_df"])
+        st.toast(f"Criados: {created}", icon="🔁")
+        st.rerun()
 
     dfm = df_g[_ym(df_g["Data"]) == mes].copy()
-
     f1, f2, f3, f4 = st.columns([1.2, 1.2, 1, 1.2])
-    with f1:
-        q = st.text_input("🔎 Buscar (descrição)", key="controle_busca")
-    with f2:
-        cats = ["Todas"] + sorted(dfm["Categoria"].dropna().unique().tolist()) if not dfm.empty else ["Todas"]
-        cat = st.selectbox("Categoria", cats, key="controle_cat")
-    with f3:
-        tipo = st.selectbox("Tipo", ["Todos", "Saída", "Entrada"], key="controle_tipo")
-    with f4:
-        pags = ["Todos"] + sorted(dfm["Pagamento"].dropna().unique().tolist()) if not dfm.empty else ["Todos"]
-        pag = st.selectbox("Pagamento", pags, key="controle_pag")
+    q = f1.text_input("🔎 Buscar", key="c_busca")
+    cat = f2.selectbox("Categoria", ["Todas"] + sorted(dfm["Categoria"].unique()) if not dfm.empty else ["Todas"],
+                       key="c_cat")
+    tipo = f3.selectbox("Tipo", ["Todos", "Saída", "Entrada"], key="c_tipo")
 
-    if q:
-        dfm = dfm[dfm["Descricao"].astype(str).str.lower().str.contains(q.lower(), na=False)]
-    if cat != "Todas" and not dfm.empty:
-        dfm = dfm[dfm["Categoria"] == cat]
-    if tipo != "Todos" and not dfm.empty:
-        dfm = dfm[dfm["Tipo"] == tipo]
-    if pag != "Todos" and not dfm.empty:
-        dfm = dfm[dfm["Pagamento"] == pag]
+    if q: dfm = dfm[dfm["Descricao"].str.lower().str.contains(q.lower(), na=False)]
+    if cat != "Todas": dfm = dfm[dfm["Categoria"] == cat]
+    if tipo != "Todos": dfm = dfm[dfm["Tipo"] == tipo]
 
+    # KPIs rápidos no Extrato também
     total_ent = float(dfm[dfm["Tipo"] == "Entrada"]["Valor"].sum()) if not dfm.empty else 0.0
     total_sai = float(dfm[dfm["Tipo"] == "Saída"]["Valor"].sum()) if not dfm.empty else 0.0
-    saldo = total_ent - total_sai
+    st.markdown(f"""
+    <div class="kpi-container" style="grid-template-columns: repeat(3, 1fr); margin-bottom:10px;">
+       <div class="kpi-card" style="min-height:80px;"><div class="kpi-label">ENTRADAS</div><div class="kpi-value" style="font-size:20px; color:#4ade80;">{_compact_brl(total_ent)}</div></div>
+       <div class="kpi-card" style="min-height:80px;"><div class="kpi-label">SAÍDAS</div><div class="kpi-value" style="font-size:20px; color:#f87171;">{_compact_brl(total_sai)}</div></div>
+       <div class="kpi-card" style="min-height:80px;"><div class="kpi-label">SALDO MÊS</div><div class="kpi-value" style="font-size:20px;">{_compact_brl(total_ent - total_sai)}</div></div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Receitas", fmt_money_brl(total_ent, 2))
-    k2.metric("Despesas", fmt_money_brl(total_sai, 2))
-    k3.metric("Saldo", fmt_money_brl(saldo, 2))
-
-    st.markdown("---")
-    st.markdown("### 🧾 Extrato detalhado (editar)")
+    st.markdown("### 🧾 Editar Extrato")
     df_edit = st.data_editor(
-        dfm.sort_values("Data", ascending=False) if not dfm.empty else dfm,
-        num_rows="dynamic",
-        use_container_width=True,
-        height=380,
-        column_config={
-            "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-            "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
-            "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Entrada", "Saída"]),
-        },
+        dfm.sort_values("Data", ascending=False), num_rows="dynamic", use_container_width=True, height=380,
         key="editor_gastos",
+        column_config={"Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
+                       "Valor": st.column_config.NumberColumn(format="R$ %.2f")}
     )
-
-    cA, cB = st.columns([1, 1])
-    with cA:
-        if st.button("💾 Salvar alterações", type="primary", use_container_width=True, key="save_edit_gastos"):
-            df_other = df_g[_ym(df_g["Data"]) != mes].copy()
-            df_new = _ensure_gastos_columns(pd.concat([df_other, df_edit], ignore_index=True))
-            st.session_state["gastos_df"] = df_new
-            save_user_data_db(username, st.session_state.get("carteira_df", pd.DataFrame()), st.session_state["gastos_df"])
-            st.toast("Extrato atualizado!", icon="✅")
-            st.rerun()
-    with cB:
-        st.download_button(
-            "⬇️ Backup Local (CSV)",
-            df_g.to_csv(index=False).encode("utf-8"),
-            "meus_gastos.csv",
-            "text/csv",
-            use_container_width=True,
-        )
+    if st.button("💾 Salvar Extrato", type="primary", use_container_width=True):
+        df_other = df_g[_ym(df_g["Data"]) != mes].copy()
+        st.session_state["gastos_df"] = _ensure_gastos_columns(pd.concat([df_other, df_edit], ignore_index=True))
+        save_user_data_db(username, st.session_state.get("carteira_df", pd.DataFrame()), st.session_state["gastos_df"])
+        st.toast("Salvo!", icon="✅")
+        st.rerun()
 
 
 def _render_envelopes(username: str):
-    st.subheader("📦 Envelopes (metas por categoria)")
-    st.caption("Defina metas mensais e acompanhe se está dentro, no limite ou estourado.")
-
+    st.subheader("📦 Envelopes (Metas)")
     df_g = _ensure_gastos_columns(st.session_state.get("gastos_df", pd.DataFrame(columns=GASTOS_COLS)))
     budgets = _get_budgets(username)
-
-    month_key = _month_key(datetime.now())
-    spent = _spent_by_category_month(df_g, month_key)
-
-    all_cats = sorted(set(list(spent.keys()) + list(budgets.keys()) + [
-        "Moradia", "Alimentação", "Transporte", "Lazer", "Investimento", "Saúde", "Educação", "Outros"
-    ]))
+    spent = _spent_by_category_month(df_g, _month_key(datetime.now()))
+    all_cats = sorted(
+        set(list(spent.keys()) + list(budgets.keys()) + ["Moradia", "Alimentação", "Transporte", "Lazer", "Outros"]))
 
     c1, c2, c3 = st.columns([1.2, 1, 1])
-    with c1:
-        cat = st.selectbox("Categoria", all_cats, key="env_cat")
-    with c2:
-        lim = st.number_input("Meta mensal (R$)", min_value=0.0, step=50.0, value=float(budgets.get(cat, 0.0)), key="env_lim")
-    with c3:
-        if st.button("Salvar meta", type="primary", use_container_width=True, key="env_save"):
-            _set_budget(username, cat, lim)
-            st.toast("Meta salva!", icon="✅")
-            st.rerun()
+    cat = c1.selectbox("Categoria", all_cats, key="env_cat")
+    lim = c2.number_input("Meta (R$)", 0.0, step=50.0, value=float(budgets.get(cat, 0.0)), key="env_lim")
+    if c3.button("Salvar Meta", type="primary", use_container_width=True):
+        _set_budget(username, cat, lim)
+        st.rerun()
 
     st.markdown("---")
-    st.markdown("### 📊 Progresso das metas")
-
     for cat in all_cats:
         lim = float(budgets.get(cat, 0.0))
         sp = float(spent.get(cat, 0.0))
-        if lim <= 0:
-            continue
-
-        pct = (sp / lim) if lim > 0 else 0.0
+        if lim <= 0: continue
+        pct = min(1.0, sp / lim)
         with st.container(border=True):
             a, b, c = st.columns([1.2, 1, 1])
-            a.markdown(f"**{cat}**")
-            b.write(f"Meta: {fmt_money_brl(lim, 2)}")
+            a.markdown(f"**{cat}**");
+            b.write(f"Meta: {fmt_money_brl(lim, 2)}");
             c.write(f"Gasto: {fmt_money_brl(sp, 2)}")
-            st.progress(min(1.0, pct))
-            st.caption(f"Uso: {pct*100:.1f}%")
+            st.progress(pct);
+            st.caption(f"Uso: {pct * 100:.1f}%")
 
 
 def _render_recorrencias(username: str):
-    st.subheader("🔁 Recorrências (contas fixas)")
-    st.caption("Crie contas fixas e gere 1 lançamento por mês (sem duplicar).")
-
+    st.subheader("🔁 Recorrências")
     with st.expander("➕ Nova recorrência", expanded=True):
         c1, c2, c3, c4 = st.columns(4)
         cat = c1.text_input("Categoria", value="Moradia", key="rec_cat")
-        desc = c2.text_input("Descrição", placeholder="Ex: Aluguel / Internet", key="rec_desc")
+        desc = c2.text_input("Descrição", key="rec_desc")
         kind = c3.selectbox("Tipo", ["Saída", "Entrada"], key="rec_tipo")
-        dom = c4.number_input("Dia do mês (1-28)", min_value=1, max_value=28, value=5, key="rec_dom")
-
+        dom = c4.number_input("Dia (1-28)", 1, 28, 5, key="rec_dom")
         c5, c6 = st.columns(2)
-        val = c5.number_input("Valor", min_value=0.0, step=10.0, value=100.0, key="rec_val")
-        pay = c6.selectbox("Pagamento", ["Pix", "Crédito", "Débito", "Dinheiro"], key="rec_pay")
-
-        if st.button("Salvar recorrência", type="primary", use_container_width=True, key="rec_save"):
-            _add_recurring(username, cat, desc, kind, float(val), pay, int(dom), active=1)
-            st.toast("Recorrência criada!", icon="🔁")
+        val = c5.number_input("Valor", 0.0, step=10.0, value=100.0, key="rec_val")
+        if c6.button("Salvar", type="primary", use_container_width=True):
+            _add_recurring(username, cat, desc, kind, float(val), "Pix", int(dom))
             st.rerun()
 
-    rec_list = _list_recurring(username)
-    df = pd.DataFrame(rec_list)
-
-    if df.empty:
-        st.info("Sem recorrências ainda.")
-        return
-
-    st.markdown("### 📋 Suas recorrências")
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
-    st.markdown("#### ⚙️ Ativar / Desativar")
-    cA, cB, cC = st.columns([1, 1, 2])
-    with cA:
-        rid_default = int(df.iloc[0].get("rec_id", df.iloc[0].get("id", 1)))
-        rid = st.number_input("rec_id", min_value=1, step=1, value=rid_default, key="rec_toggle_id")
-    with cB:
-        act = st.selectbox("Ação", ["Ativar", "Desativar"], key="rec_toggle_action")
-    with cC:
-        if st.button("Aplicar", use_container_width=True, key="rec_toggle_apply"):
-            _set_recurring_active(username, int(rid), 1 if act == "Ativar" else 0)
-            st.toast("Atualizado!", icon="✅")
+    df = pd.DataFrame(_list_recurring(username))
+    if not df.empty:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        cA, cB, cC = st.columns([1, 1, 2])
+        rid = cA.number_input("ID", 1, step=1, key="rec_id_tog")
+        act = cB.selectbox("Ação", ["Ativar", "Desativar"], key="rec_act_tog")
+        if cC.button("Aplicar", use_container_width=True):
+            _set_recurring_active(username, rid, 1 if act == "Ativar" else 0)
             st.rerun()
 
 
 def _render_import_csv(username: str):
-    st.subheader("📥 Importar CSV + Regras (aprende)")
-    st.caption("Importe fatura/extrato e o app sugere categorias e cria regras automaticamente.")
-
-    rules_df = pd.DataFrame(_list_rules(username))
-    if rules_df.empty:
-        st.info("Sem regras ainda. Depois do primeiro import, ele aprende.")
-    else:
-        st.dataframe(rules_df, use_container_width=True, hide_index=True)
-
-    up = st.file_uploader("Subir CSV do cartão/extrato", type=["csv"], key="uploader_csv_cartao")
-    if not up:
-        return
-
+    st.subheader("📥 Importar CSV")
+    up = st.file_uploader("Subir Extrato/Fatura", type=["csv"], key="up_csv_gastos")
+    if not up: return
     df_raw = _smart_load_csv(up)
-    if df_raw is None or df_raw.empty:
-        st.error("CSV inválido ou vazio.")
-        return
+    if df_raw is None: return st.error("CSV inválido.")
 
     cols = {str(c).lower(): c for c in df_raw.columns}
-    col_desc = cols.get("descricao") or cols.get("description") or cols.get("histórico") or cols.get("historico") or cols.get("desc")
-    col_val = cols.get("valor") or cols.get("amount") or cols.get("total") or cols.get("value")
+    col_desc = cols.get("descricao") or cols.get("description") or cols.get("histórico")
+    col_val = cols.get("valor") or cols.get("amount") or cols.get("total")
     col_date = cols.get("data") or cols.get("date")
 
-    if not col_desc or not col_val:
-        st.error("Não achei colunas parecidas com 'descricao' e 'valor' no seu CSV.")
-        st.write("Colunas encontradas:", list(df_raw.columns))
-        return
+    if not (col_desc and col_val): return st.error("Colunas não identificadas.")
 
     df = df_raw.copy()
     df["Descricao"] = df[col_desc].astype(str)
-    df["Valor"] = df[col_val]
-    df["Data"] = _to_dt(df[col_date]) if col_date else pd.Timestamp(datetime.now().date())
+    df["Valor"] = pd.to_numeric(
+        df[col_val].astype(str).str.replace("R$", "", regex=False).str.replace(".", "", regex=False).str.replace(",",
+                                                                                                                 ".",
+                                                                                                                 regex=False),
+        errors="coerce").fillna(0.0)
+    df["Data"] = _to_dt(df[col_date]) if col_date else datetime.now().date()
 
-    if df["Valor"].dtype == object:
-        df["Valor"] = (
-            df["Valor"].astype(str)
-            .str.replace("R$", "", regex=False)
-            .str.replace(".", "", regex=False)
-            .str.replace(",", ".", regex=False)
-            .str.strip()
-        )
-    df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce").fillna(0.0)
+    rules = pd.DataFrame(_list_rules(username))
+    df["Categoria"] = df["Descricao"].apply(lambda x: _apply_rules(rules, x))
 
-    rules_df2 = rules_df.copy()
-    if "active" not in rules_df2.columns:
-        rules_df2["active"] = 1
-
-    df["Categoria_sugerida"] = df["Descricao"].apply(lambda x: _apply_rules(rules_df2, x))
-    df["Categoria_final"] = df["Categoria_sugerida"]
-
-    st.markdown("### ✅ Conferir e ajustar categorias")
-    edited = st.data_editor(
-        df[["Data", "Descricao", "Valor", "Categoria_sugerida", "Categoria_final"]],
-        use_container_width=True,
-        height=380,
-        num_rows="fixed",
-        column_config={
-            "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-            "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
-        },
-        key="editor_import",
-    )
-
-    tipo = st.selectbox("Tipo dos lançamentos importados", ["Saída", "Entrada"], key="import_tipo")
-    pagamento = st.selectbox("Pagamento (padrão)", ["Crédito", "Pix", "Débito", "Dinheiro"], key="import_pag")
-
-    if st.button("✅ Importar para o Controle", type="primary", use_container_width=True, key="import_apply"):
-        df_g = _ensure_gastos_columns(st.session_state.get("gastos_df", pd.DataFrame(columns=GASTOS_COLS)))
-
+    edited = st.data_editor(df[["Data", "Descricao", "Valor", "Categoria"]], use_container_width=True, height=350)
+    tipo = st.selectbox("Tipo", ["Saída", "Entrada"], key="imp_tipo")
+    if st.button("✅ Importar", type="primary", use_container_width=True):
         rows = []
         for _, r in edited.iterrows():
-            desc = str(r.get("Descricao", "")).strip()
-            val = float(r.get("Valor", 0.0) or 0.0)
-            dtv = r.get("Data", None)
-            cat_final = str(r.get("Categoria_final", "Outros") or "Outros").strip()
-            if not desc or val == 0:
-                continue
-
             rows.append({
-                "Data": pd.to_datetime(dtv, errors="coerce") if dtv is not None else pd.to_datetime(datetime.now().date()),
-                "Categoria": cat_final if cat_final else "Outros",
-                "Descricao": desc,
-                "Tipo": "Entrada" if tipo == "Entrada" else "Saída",
-                "Valor": abs(val),
-                "Pagamento": pagamento,
+                "Data": pd.to_datetime(r["Data"]), "Categoria": r["Categoria"], "Descricao": r["Descricao"],
+                "Tipo": tipo, "Valor": abs(float(r["Valor"])), "Pagamento": "Crédito"
             })
+            pat = _pick_pattern(r["Descricao"])
+            if pat: _add_rule(username, pat, r["Categoria"])
 
-            pat = _pick_pattern(desc)
-            if pat:
-                _add_rule(username, pat, cat_final, active=1)
-
-        df_new = _append_rows(df_g, rows)
-        st.session_state["gastos_df"] = _ensure_gastos_columns(df_new)
+        df_new = _append_rows(st.session_state.get("gastos_df", pd.DataFrame()), rows)
+        st.session_state["gastos_df"] = df_new
         save_user_data_db(username, st.session_state.get("carteira_df", pd.DataFrame()), st.session_state["gastos_df"])
-        st.toast(f"Importado: {len(rows)} lançamentos", icon="✅")
+        st.toast("Importado!", icon="✅")
         st.rerun()
 
 
 # =========================================================
-# Page entry
+# MAIN ENTRY
 # =========================================================
 def render_controle():
+    _apply_unified_css()  # <<< CSS MÁGICO AQUI
     username = st.session_state.get("username", "") or "guest"
-
     st.markdown("# 💸 Controle")
-    st.caption("Gastos, orçamento (envelopes), recorrências e importação de faturas.")
+    st.caption("Gastos, Orçamento e Recorrências")
 
-    if "controle_tab" not in st.session_state:
-        st.session_state["controle_tab"] = "Dashboard"
-    if "controle_open_new_popup" not in st.session_state:
-        st.session_state["controle_open_new_popup"] = False
+    if st.button("➕ Nova transação", type="primary", use_container_width=True):
+        _show_new_tx_dialog(username)
 
-    if st.button("➕ Nova transação", type="primary", use_container_width=True, key="ctl_open_new_popup"):
-        _open_new_tx_popup()
+    if "controle_tab" not in st.session_state: st.session_state["controle_tab"] = "Dashboard"
 
-    st.markdown("### Seções")
-    n1, n2, n3, n4, n5 = st.columns(5)
+    # Navegação com 5 botões iguais
+    n1, n2, n3, n4, n5 = st.columns(5, gap="small")
     with n1:
         _nav_btn("Dashboard", "Dashboard", "📊")
     with n2:
@@ -804,11 +571,7 @@ def render_controle():
         _nav_btn("Importar CSV", "Importar CSV", "📥")
 
     st.markdown("---")
-
-    if st.session_state.get("controle_open_new_popup", False):
-        _render_new_tx_dialog(username)
-
-    tab = st.session_state.get("controle_tab", "Dashboard")
+    tab = st.session_state["controle_tab"]
 
     if tab == "Dashboard":
         _render_dashboard(username)

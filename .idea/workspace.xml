@@ -5,19 +5,15 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="bd2c7d15-b86f-4060-91a7-020c58b657f6" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/AplicativoFinancas.iml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets (2).zip" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/db.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/db.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bee/pages/academy.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/academy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bee/pages/analisar.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/analisar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bee/pages/calculadoras.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/calculadoras.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bee/pages/carteira.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/carteira.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bee/pages/controle.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/controle.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/theme.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/theme.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fix_db.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/fix_targets_col.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/bee/pages/educacao.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/bee/pages/home.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/home.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bee/pages/noticias.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/noticias.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -102,7 +98,7 @@
       <workItem from="1770301208390" duration="12911000" />
       <workItem from="1770404790545" duration="17816000" />
       <workItem from="1770477127073" duration="14449000" />
-      <workItem from="1770508574328" duration="4542000" />
+      <workItem from="1770508574328" duration="7764000" />
     </task>
     <servers />
   </component>
