@@ -1,6 +1,6 @@
 import warnings
 import logging
-from datetime import datetime, timedelta, timezone  # <--- ADICIONEI timedelta e timezone AQUI
+from datetime import datetime, timedelta, timezone
 import streamlit as st
 
 # -----------------------------------------------------------------------------
@@ -33,41 +33,32 @@ def cached_load_user_data(username):
 
 
 def render_top_bar_with_privacy():
-    # Inicializa estado de privacidade se não existir
     if "privacy_mode" not in st.session_state:
         st.session_state["privacy_mode"] = False
 
-    st.markdown(
-        """
+    st.markdown("""
         <style>
         .clock-box {
             display: flex; align-items: center; justify-content: center;
-            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);
-            padding: 10px 15px; border-radius: 12px;
-            color: #FFD700; font-family: monospace; font-size: 16px; font-weight: bold;
-            height: 46px; /* Mesma altura do botão */
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            padding: 8px 12px; border-radius: 10px;
+            color: #FFD700; font-family: monospace; font-size: 15px; font-weight: bold;
+            height: 44px;
         }
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
 
-    # Layout: Relógio | Espaço | Botão Olho
-    c_clock, c_eye, _ = st.columns([2.5, 1, 6])  # Ajuste os pesos se quiser mover p/ direita
+    c_clock, c_eye, _ = st.columns([2.2, 0.8, 6])
 
     with c_clock:
-        # --- CORREÇÃO DE FUSO HORÁRIO (BRASIL UTC-3) ---
         fuso_horario = timezone(timedelta(hours=-3))
-        agora = datetime.now(fuso_horario).strftime("%d/%m/%Y %H:%M")
-
+        agora = datetime.now(fuso_horario).strftime("%d/%m %H:%M")
         st.markdown(f'<div class="clock-box">🕒 {agora}</div>', unsafe_allow_html=True)
 
     with c_eye:
-        # Define ícone e texto
         is_hidden = st.session_state["privacy_mode"]
         icon = "🙈" if is_hidden else "👁️"
-        # Botão Toggle
-        if st.button(f"{icon}", use_container_width=True, help="Ocultar/Mostrar valores"):
+        if st.button(f"{icon}", use_container_width=True, help="Privacidade"):
             st.session_state["privacy_mode"] = not is_hidden
             st.rerun()
 
@@ -83,21 +74,22 @@ def apply_app_shell_css():
         .stDeployButton, [data-testid="stDecoration"], [data-testid="stStatusWidget"] { display:none !important; }
         header[data-testid="stHeader"] { opacity: 0; pointer-events: none; height: 0px; }
         section[data-testid="stSidebar"] { display: none !important; }
-        .block-container { padding-top: 1rem !important; max-width: 100%; }
-        .floating-menu-container { position: fixed; top: 20px; right: 20px; z-index: 999999; }
-        .floating-menu-container button {
-            background-color: #FFD700 !important; color: #111 !important; border: none !important;
-            border-radius: 8px !important; padding: 8px 16px !important; font-weight: 800 !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-        }
-        .floating-menu-container button:hover { opacity: 0.9; transform: scale(1.02); }
-        .bee-footer { margin-top: 40px; padding: 20px; text-align: center; font-size: 11px; opacity: 0.4; }
 
-        /* Ajuste fino para alinhar botão do olho com o relógio */
-        div[data-testid="column"] button {
-            min-height: 46px !important;
-            border-radius: 12px !important;
+        .block-container { padding-top: 1rem !important; max-width: 100%; }
+
+        /* Botão Flutuante Menu */
+        .floating-menu-container { position: fixed; top: 15px; right: 15px; z-index: 999999; }
+        .floating-menu-container button {
+            background: #FFD700 !important; color: #000 !important; border: none !important;
+            border-radius: 8px !important; font-weight: 800 !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4) !important;
         }
+        .floating-menu-container button:hover { transform: scale(1.05); }
+
+        .bee-footer { margin-top: 50px; text-align: center; font-size: 10px; opacity: 0.3; }
+
+        /* Ajuste botões gerais da barra superior */
+        div[data-testid="column"] button { min-height: 44px !important; border-radius: 10px !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -105,199 +97,223 @@ def apply_app_shell_css():
 
 
 # =============================================================================
-# CONFIG POP-UP (⚙️)
+# CONFIG POP-UP
 # =============================================================================
 @st.dialog("⚙️ Configurações")
 def open_config_modal():
     st.session_state["open_config"] = False
+    st.caption("🔒 Segurança")
 
-    st.caption("🔒 Segurança da conta")
-
-    with st.expander("🔒 Trocar senha", expanded=True):
+    with st.expander("Trocar senha", expanded=True):
         with st.form("form_change_pass"):
-            old_pass = st.text_input("Senha atual", type="password")
-            new_pass = st.text_input("Nova senha", type="password")
-            new_pass2 = st.text_input("Confirmar nova senha", type="password")
+            old = st.text_input("Senha atual", type="password")
+            new = st.text_input("Nova senha", type="password")
+            new2 = st.text_input("Confirmar", type="password")
 
-            col_a, col_b = st.columns(2)
-            with col_a:
-                btn_change = st.form_submit_button("Salvar nova senha", type="primary", use_container_width=True)
-            with col_b:
-                btn_cancel = st.form_submit_button("Cancelar", use_container_width=True)
-
-            if btn_cancel:
-                st.rerun()
-
-            if btn_change:
-                if not old_pass or not new_pass:
-                    st.warning("Preencha a senha atual e a nova senha.")
-                elif new_pass != new_pass2:
-                    st.error("A confirmação da senha não confere.")
-                elif len(new_pass) < 4:
-                    st.error("A nova senha está muito curta.")
+            if st.form_submit_button("Atualizar Senha", type="primary", use_container_width=True):
+                if new != new2:
+                    st.error("Senhas não conferem.")
+                elif len(new) < 4:
+                    st.error("Senha muito curta.")
+                elif update_password_db(st.session_state.get("username", ""), old, new):
+                    st.success("Sucesso! ✅")
                 else:
-                    ok = update_password_db(st.session_state.get("username", ""), old_pass, new_pass)
-                    if ok:
-                        st.success("Senha atualizada com sucesso ✅")
-                    else:
-                        st.error("Senha atual incorreta.")
+                    st.error("Senha atual incorreta.")
 
     st.divider()
-    st.caption("🗑️ Perigo")
-
-    with st.expander("🗑️ Deletar conta", expanded=False):
-        st.error("Isso apaga sua conta e seus dados. Essa ação não pode ser desfeita.")
-        confirm = st.checkbox("Eu entendo e quero deletar minha conta", value=False)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🗑️ Deletar agora", use_container_width=True, disabled=not confirm):
-                try:
-                    delete_user_db(st.session_state.get("username", ""))
-                except Exception:
-                    pass
-                st.session_state.clear()
-                st.success("Conta deletada. Até mais 👋")
-                st.rerun()
-
-        with col2:
-            if st.button("Cancelar", use_container_width=True):
-                st.rerun()
-
-
-# =============================================================================
-# MENU POP-UP (GRID STYLE)
-# =============================================================================
-@st.dialog("🐝 Menu Principal")
-def open_menu_modal():
-    def change_page(new_page):
-        st.session_state["page"] = new_page
-        keys_to_clear = ["ativo_selecionado", "popup_ativo", "show_details", "selected_ticker", "open_modal",
-                         "editing_transaction"]
-        for key in keys_to_clear:
-            if key in st.session_state:
-                del st.session_state[key]
+    if st.button("Sair da Conta", use_container_width=True):
+        st.session_state.clear()
         st.rerun()
 
-    st.markdown("<div style='margin-bottom: 10px'></div>", unsafe_allow_html=True)
+
+# =============================================================================
+# MENU POP-UP
+# =============================================================================
+@st.dialog("🐝 Navegação")
+def open_menu_modal():
+    def go(pg):
+        st.session_state["page"] = pg
+        for k in ["ativo_selecionado", "popup_ativo", "show_details", "selected_ticker", "open_modal"]:
+            if k in st.session_state: del st.session_state[k]
+        st.rerun()
 
     c1, c2, c3 = st.columns(3, gap="small")
     with c1:
-        if st.button("🏠\nHome", use_container_width=True): change_page("🏠 Home")
+        if st.button("🏠\nHome", use_container_width=True): go("🏠 Home")
     with c2:
-        if st.button("💼\nCarteira", use_container_width=True): change_page("💼 Carteira")
+        if st.button("💼\nCarteira", use_container_width=True): go("💼 Carteira")
     with c3:
-        if st.button("💸\nControle", use_container_width=True): change_page("💸 Controle")
+        if st.button("💸\nControle", use_container_width=True): go("💸 Controle")
 
-    st.markdown("<div style='height: 5px'></div>", unsafe_allow_html=True)
-
+    st.write("")
     c4, c5, c6 = st.columns(3, gap="small")
     with c4:
-        if st.button("🔍\nAnalisar", use_container_width=True): change_page("🔍 Analisar")
+        if st.button("🔍\nAnalisar", use_container_width=True): go("🔍 Analisar")
     with c5:
-        if st.button("📰\nNotícias", use_container_width=True): change_page("📰 Notícias")
+        if st.button("📰\nNotícias", use_container_width=True): go("📰 Notícias")
     with c6:
-        if st.button("🧮\nCalc", use_container_width=True): change_page("🧮 Calculadoras")
+        if st.button("🧮\nCalc", use_container_width=True): go("🧮 Calculadoras")
 
-    st.markdown("<div style='height: 5px'></div>", unsafe_allow_html=True)
-
-    c7, c8, c9 = st.columns(3, gap="small")
+    st.write("")
+    c7, c8 = st.columns([1, 1], gap="small")
     with c7:
-        if st.button("🎓\nAcademy", use_container_width=True): change_page("🎓 Bee Academy")
+        if st.button("🎓\nAcademy", use_container_width=True): go("🎓 Bee Academy")
     with c8:
         if st.button("⚙️\nConfig", use_container_width=True):
             st.session_state["open_config"] = True
-            st.rerun()
-    with c9:
-        if st.button("🚪\nSair", use_container_width=True):
-            st.session_state.clear()
             st.rerun()
 
 
 def render_floating_menu_button():
     st.markdown('<div class="floating-menu-container">', unsafe_allow_html=True)
-    if st.button("☰ Menu", key="btn_main_menu_float"):
+    if st.button("☰", key="btn_main_menu_float", help="Menu Principal"):
         open_menu_modal()
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # =============================================================================
-# LOGIN & ROUTER
+# TELA DE LOGIN (CORRIGIDA - OLHO TRANSPARENTE)
 # =============================================================================
 def render_login(logo_img):
-    st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
-    cols = st.columns([1, 6, 1])
-    with cols[1]:
-        st.markdown("<div style='text-align:center; margin-bottom: 20px;'>", unsafe_allow_html=True)
+    st.markdown("""
+    <style>
+        /* --- CORREÇÃO DEFINITIVA DO OLHO DA SENHA --- */
+        /* Alvo: Botões dentro do input que tenham "password" no título (Show/Hide) */
+        div[data-baseweb="input"] > div > button[title*="password"] {
+            background: transparent !important;  /* Remove o fundo amarelo */
+            border: none !important;             /* Remove borda */
+            box-shadow: none !important;         /* Remove sombra */
+            color: rgba(255, 255, 255, 0.6) !important; /* Cor do ícone discreta */
+            margin: 0 !important;
+            height: auto !important;
+            transform: none !important; /* Impede que ele cresça no hover */
+        }
+        /* Hover do ícone do olho */
+        div[data-baseweb="input"] > div > button[title*="password"]:hover {
+            background: transparent !important;
+            color: rgba(255, 255, 255, 1.0) !important; /* Fica branco ao passar o mouse */
+            box-shadow: none !important;
+        }
+
+        /* --- Botões PRINCIPAIS do Formulário (Entrar/Criar) --- */
+        /* Usamos um seletor mais específico para pegar só o botão de submit */
+        div[data-testid="stForm"] > div > div > button[kind="primaryFormSubmit"] {
+            background: linear-gradient(135deg, #FFD700 0%, #FFB300 100%) !important;
+            color: #000 !important;
+            border: none !important;
+            font-weight: 800 !important;
+            text-transform: uppercase !important;
+            height: 48px !important;
+            border-radius: 12px !important;
+            margin-top: 10px !important;
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2) !important;
+        }
+        div[data-testid="stForm"] > div > div > button[kind="primaryFormSubmit"]:hover {
+            transform: scale(1.02);
+            box-shadow: 0 6px 20px rgba(255, 215, 0, 0.4) !important;
+        }
+
+        /* Títulos Centralizados */
+        .login-title {
+            text-align: center; font-size: 32px; font-weight: 900;
+            background: -webkit-linear-gradient(45deg, #FFD700, #ffae00);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 5px;
+        }
+        .login-sub {
+            text-align: center; font-size: 14px; opacity: 0.6; margin-bottom: 30px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Layout Responsivo
+    col_l, col_main, col_r = st.columns([1, 1.2, 1])
+
+    with col_main:
+        st.markdown("<div style='height: 40px'></div>", unsafe_allow_html=True)
+
+        # LOGO CENTRALIZADA
         if logo_img:
-            st.image(logo_img, width=140)
-        else:
-            st.markdown("<h1>🐝 Bee Finanças</h1>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+            c_img_l, c_img_c, c_img_r = st.columns([1, 2, 1])
+            with c_img_c:
+                st.image(logo_img, use_container_width=True)
 
-        tab_login, tab_register = st.tabs(["Entrar", "Criar Conta"])
-        with tab_login:
-            with st.form("login_form"):
-                l_user = st.text_input("Usuário")
-                l_pass = st.text_input("Senha", type="password")
-                if st.form_submit_button("Acessar Painel", type="primary", use_container_width=True):
-                    name = login_user(l_user, l_pass)
-                    if name:
-                        st.session_state["user_logged_in"] = True
-                        st.session_state["username"] = l_user
-                        # Salva nome no state para usar no Home
-                        st.session_state["user_name_display"] = name
-                        try:
-                            c_df, g_df = cached_load_user_data(l_user)
-                            st.session_state["carteira_df"] = c_df
-                            st.session_state["gastos_df"] = g_df
-                            st.session_state["wallet_mode"] = not c_df.empty
-                            st.session_state["gastos_mode"] = not g_df.empty
-                        except Exception:
-                            pass
-                        st.session_state["page"] = "🏠 Home"
-                        st.rerun()
-                    else:
-                        st.error("Dados incorretos.")
+        st.markdown('<div class="login-title">Bee Finanças</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-sub">Sua central de inteligência financeira</div>', unsafe_allow_html=True)
 
-        with tab_register:
-            with st.form("register_form"):
-                r_user = st.text_input("Novo Usuário")
-                r_name = st.text_input("Seu Nome")
-                r_pass = st.text_input("Nova Senha", type="password")
-                if st.form_submit_button("Criar Conta"):
-                    if create_user(r_user, r_pass, r_name):
-                        st.success("Conta criada! Faça login.")
-                    else:
-                        st.error("Usuário já existe.")
+        # Card Nativo
+        with st.container(border=True):
+            tab_entrar, tab_criar = st.tabs(["Acessar Conta", "Criar Nova"])
+
+            with tab_entrar:
+                with st.form("login_form"):
+                    st.text_input("Usuário", key="l_u", placeholder="Digite seu usuário")
+                    st.text_input("Senha", type="password", key="l_p", placeholder="••••••")
+
+                    if st.form_submit_button("ENTRAR", use_container_width=True):
+                        u = st.session_state.l_u
+                        p = st.session_state.l_p
+                        name = login_user(u, p)
+                        if name:
+                            st.session_state.user_logged_in = True
+                            st.session_state.username = u
+                            st.session_state.user_name_display = name
+                            try:
+                                c, g = cached_load_user_data(u)
+                                st.session_state.carteira_df = c
+                                st.session_state.gastos_df = g
+                            except:
+                                pass
+                            st.session_state.page = "🏠 Home"
+                            st.rerun()
+                        else:
+                            st.error("Dados incorretos.")
+
+            with tab_criar:
+                with st.form("register_form"):
+                    new_u = st.text_input("Novo Usuário", placeholder="Ex: mateus_bee")
+                    new_n = st.text_input("Seu Nome", placeholder="Ex: Mateus")
+                    new_p = st.text_input("Senha", type="password")
+
+                    if st.form_submit_button("CRIAR CONTA", use_container_width=True):
+                        if len(new_p) < 4:
+                            st.warning("Senha muito curta.")
+                        elif create_user(new_u, new_p, new_n):
+                            st.success("Conta criada! Faça login.")
+                        else:
+                            st.error("Usuário já existe.")
+
     st.stop()
 
 
+# =============================================================================
+# MAIN ORCHESTRATOR
+# =============================================================================
 def route_pages():
-    page = st.session_state.get("page", "🏠 Home")
-    if page == "🏠 Home":
-        from bee.pages.home import render_home
+    pg = st.session_state.get("page", "🏠 Home")
+    if pg == "🏠 Home":
+        from bee.pages.home import render_home;
         render_home()
-    elif page == "📰 Notícias":
-        from bee.pages.noticias import render_noticias
-        render_noticias()
-    elif page == "🔍 Analisar":
-        from bee.pages.analisar import render_analisar
-        render_analisar()
-    elif page == "💼 Carteira":
-        from bee.pages.carteira import render_carteira
+    elif pg == "💼 Carteira":
+        from bee.pages.carteira import render_carteira;
         render_carteira()
-    elif page == "💸 Controle":
-        from bee.pages.controle import render_controle
+    elif pg == "💸 Controle":
+        from bee.pages.controle import render_controle;
         render_controle()
-    elif page == "🧮 Calculadoras":
-        from bee.pages.calculadoras import render_calculadoras
+    elif pg == "🔍 Analisar":
+        from bee.pages.analisar import render_analisar;
+        render_analisar()
+    elif pg == "📰 Notícias":
+        from bee.pages.noticias import render_noticias;
+        render_noticias()
+    elif pg == "🧮 Calculadoras":
+        from bee.pages.calculadoras import render_calculadoras;
         render_calculadoras()
-    elif page == "🎓 Bee Academy":
-        from bee.pages.academy import render_academy
+    elif pg == "🎓 Bee Academy":
+        from bee.pages.academy import render_academy;
         render_academy()
     else:
-        from bee.pages.home import render_home
+        from bee.pages.home import render_home;
         render_home()
 
 
@@ -309,9 +325,7 @@ def main():
     init_db()
     init_academy_db()
 
-    # Garante que o modo privacidade existe no session_state
-    if "privacy_mode" not in st.session_state:
-        st.session_state["privacy_mode"] = False
+    if "privacy_mode" not in st.session_state: st.session_state["privacy_mode"] = False
 
     if not st.session_state.get("user_logged_in", False):
         render_login(logo_img)
@@ -322,7 +336,6 @@ def main():
         st.session_state["carteira_df"] = c_df
         st.session_state["gastos_df"] = g_df
 
-    # Renderiza a barra com Relógio e Botão de Privacidade
     render_top_bar_with_privacy()
     render_floating_menu_button()
 

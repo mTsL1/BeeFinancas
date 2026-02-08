@@ -6,14 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="bd2c7d15-b86f-4060-91a7-020c58b657f6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/academy.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/academy.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/analisar.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/analisar.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/calculadoras.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/calculadoras.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/carteira.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/carteira.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/controle.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/controle.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/educacao.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/home.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/home.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/noticias.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/noticias.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -98,7 +90,7 @@
       <workItem from="1770301208390" duration="12911000" />
       <workItem from="1770404790545" duration="17816000" />
       <workItem from="1770477127073" duration="14449000" />
-      <workItem from="1770508574328" duration="7764000" />
+      <workItem from="1770508574328" duration="8416000" />
     </task>
     <servers />
   </component>
