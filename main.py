@@ -1,23 +1,17 @@
 import warnings
 import logging
 from datetime import datetime
-
-# -----------------------------------------------------------------------------
-# 0) FILTROS DE SILENCIAMENTO
-# -----------------------------------------------------------------------------
-warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.simplefilter(action='ignore', category=UserWarning)
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-logging.getLogger('yfinance').setLevel(logging.CRITICAL)
-
 import streamlit as st
 
-# =============================================================================
-# IMPORTS DO SEU PROJETO
-# =============================================================================
-# Mantemos os imports para garantir que o resto funcione, mas não usaremos yf na home
-from bee.safe_imports import yf, go, px, dtparser, GoogleTranslator
-from bee.theme import apply_page_config, apply_theme_css, apply_bee_light_css
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES INICIAIS
+# -----------------------------------------------------------------------------
+warnings.simplefilter(action="ignore", category=FutureWarning)
+warnings.simplefilter(action="ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+
+from bee.theme import apply_page_config, apply_theme_css  # removido light mode
 from bee.state import init_session_state
 from bee.db import (
     init_db,
@@ -25,125 +19,61 @@ from bee.db import (
     create_user,
     load_user_data_db,
     update_password_db,
-    delete_user_db
+    delete_user_db,
 )
-
-# Páginas
-from bee.pages.home import render_home
-from bee.pages.noticias import render_noticias
-from bee.pages.analisar import render_analisar
-from bee.pages.carteira import render_carteira
-from bee.pages.controle import render_controle
-from bee.pages.calculadoras import render_calculadoras
-from bee.pages.academy import render_academy
 from bee.academy.progress import init_academy_db
 
 
 # =============================================================================
-# 1) OTIMIZAÇÃO DE PERFORMANCE (CACHE DE DADOS DO USUÁRIO)
+# CACHE & HELPERS
 # =============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_load_user_data(username):
-    """Carrega dados do banco com cache de 5 minutos."""
     return load_user_data_db(username)
 
 
-# =============================================================================
-# 2) BARRA SUPERIOR SIMPLES (SÓ RELÓGIO - ZERO LAG)
-# =============================================================================
 def render_top_bar_simple():
-    """
-    Renderiza apenas o relógio.
-    Não faz NENHUMA conexão externa (Yahoo), por isso é instantâneo.
-    """
-
-    # CSS para a barra ficar bonita e simples
-    st.markdown("""
+    st.markdown(
+        """
         <style>
         .top-bar-simple {
-            display: flex;
-            align-items: center;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.05);
-            padding: 8px 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            width: fit-content; /* Ocupa só o espaço necessário */
+            display: flex; align-items: center;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);
+            padding: 8px 20px; border-radius: 12px; margin-bottom: 20px; width: fit-content;
         }
-        .clock-text { 
-            font-weight: bold; 
-            opacity: 0.9; 
-            color: #FFD700; /* Dourado Bee */
-            font-family: monospace;
-            font-size: 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .clock-text {
+            font-weight: bold; opacity: 0.9; color: #FFD700;
+            font-family: monospace; font-size: 16px; gap: 8px;
         }
         </style>
-    """, unsafe_allow_html=True)
-
+        """,
+        unsafe_allow_html=True,
+    )
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-
-    html = f"""
-    <div class="top-bar-simple">
-        <div class="clock-text">🕒 {agora}</div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(
+        f"""<div class="top-bar-simple"><div class="clock-text">🕒 {agora}</div></div>""",
+        unsafe_allow_html=True,
+    )
 
 
-# =============================================================================
-# 3) CSS (VISUAL)
-# =============================================================================
 def apply_app_shell_css():
     st.markdown(
         """
         <style>
-        /* --- LIMPEZA --- */
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
         .stDeployButton, [data-testid="stDecoration"], [data-testid="stStatusWidget"] { display:none !important; }
         header[data-testid="stHeader"] { opacity: 0; pointer-events: none; height: 0px; }
         section[data-testid="stSidebar"] { display: none !important; }
-
-        .block-container {
-            padding-top: 1rem !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-            max-width: 100%;
-            padding-bottom: 4rem !important;
-        }
-
-        /* --- BOTÃO FLUTUANTE --- */
-        .floating-menu-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 999999;
-        }
+        .block-container { padding-top: 1rem !important; max-width: 100%; }
+        .floating-menu-container { position: fixed; top: 20px; right: 20px; z-index: 999999; }
         .floating-menu-container button {
-            background-color: #FFD700 !important;
-            color: #111 !important;
-            border: none !important;
-            border-radius: 8px !important;
-            padding: 8px 16px !important;
-            font-weight: 800 !important;
+            background-color: #FFD700 !important; color: #111 !important; border: none !important;
+            border-radius: 8px !important; padding: 8px 16px !important; font-weight: 800 !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
         }
-        .floating-menu-container button:hover {
-            opacity: 0.9;
-            transform: scale(1.02);
-        }
-
-        .bee-footer {
-            margin-top: 40px;
-            padding: 20px;
-            text-align: center;
-            font-size: 11px;
-            opacity: 0.4;
-            border-top: 1px solid rgba(255,255,255,0.05);
-        }
+        .floating-menu-container button:hover { opacity: 0.9; transform: scale(1.02); }
+        .bee-footer { margin-top: 40px; padding: 20px; text-align: center; font-size: 11px; opacity: 0.4; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -151,74 +81,160 @@ def apply_app_shell_css():
 
 
 # =============================================================================
-# 4) MENU POP-UP
+# CONFIG POP-UP (⚙️) - NÃO É ABERTO DENTRO DE OUTRO DIALOG
+# =============================================================================
+@st.dialog("⚙️ Configurações")
+def open_config_modal():
+    # "consome" a flag pra não reabrir em loop
+    st.session_state["open_config"] = False
+
+    st.caption("🔒 Segurança da conta")
+
+    # ---- Trocar senha ----
+    with st.expander("🔒 Trocar senha", expanded=True):
+        with st.form("form_change_pass"):
+            old_pass = st.text_input("Senha atual", type="password")
+            new_pass = st.text_input("Nova senha", type="password")
+            new_pass2 = st.text_input("Confirmar nova senha", type="password")
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                btn_change = st.form_submit_button(
+                    "Salvar nova senha", type="primary", use_container_width=True
+                )
+            with col_b:
+                btn_cancel = st.form_submit_button("Cancelar", use_container_width=True)
+
+            if btn_cancel:
+                st.rerun()
+
+            if btn_change:
+                if not old_pass or not new_pass:
+                    st.warning("Preencha a senha atual e a nova senha.")
+                elif new_pass != new_pass2:
+                    st.error("A confirmação da senha não confere.")
+                elif len(new_pass) < 4:
+                    st.error("A nova senha está muito curta.")
+                else:
+                    ok = update_password_db(
+                        st.session_state.get("username", ""), old_pass, new_pass
+                    )
+                    if ok:
+                        st.success("Senha atualizada com sucesso ✅")
+                    else:
+                        st.error("Senha atual incorreta.")
+
+    # ---- Deletar conta ----
+    st.divider()
+    st.caption("🗑️ Perigo")
+
+    with st.expander("🗑️ Deletar conta", expanded=False):
+        st.error("Isso apaga sua conta e seus dados. Essa ação não pode ser desfeita.")
+        confirm = st.checkbox("Eu entendo e quero deletar minha conta", value=False)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(
+                "🗑️ Deletar agora", use_container_width=True, disabled=not confirm
+            ):
+                try:
+                    delete_user_db(st.session_state.get("username", ""))
+                except Exception:
+                    pass
+                st.session_state.clear()
+                st.success("Conta deletada. Até mais 👋")
+                st.rerun()
+
+        with col2:
+            if st.button("Cancelar", use_container_width=True):
+                st.rerun()
+
+
+# =============================================================================
+# MENU POP-UP (GRID STYLE)
 # =============================================================================
 @st.dialog("🐝 Menu Principal")
 def open_menu_modal():
-    st.caption("🏠 HUB")
-    c1, c2 = st.columns(2)
-    if c1.button("Home", use_container_width=True):
-        st.session_state["page"] = "🏠 Home";
-        st.rerun()
-    if c2.button("Notícias", use_container_width=True):
-        st.session_state["page"] = "📰 Notícias";
-        st.rerun()
-
-    st.caption("🛠️ FERRAMENTAS")
-    c3, c4 = st.columns(2)
-    if c3.button("Carteira", use_container_width=True):
-        st.session_state["page"] = "💼 Carteira";
-        st.rerun()
-    if c4.button("Controle", use_container_width=True):
-        st.session_state["page"] = "💸 Controle";
+    def change_page(new_page):
+        st.session_state["page"] = new_page
+        # Limpa variáveis de popup da Carteira/Controle
+        keys_to_clear = [
+            "ativo_selecionado",
+            "popup_ativo",
+            "show_details",
+            "selected_ticker",
+            "open_modal",
+            "editing_transaction",
+        ]
+        for key in keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()
 
-    c5, c6 = st.columns(2)
-    if c5.button("Analisar", use_container_width=True):
-        st.session_state["page"] = "🔍 Analisar";
-        st.rerun()
-    if c6.button("Calculadoras", use_container_width=True):
-        st.session_state["page"] = "🧮 Calculadoras";
-        st.rerun()
+    st.markdown("<div style='margin-bottom: 10px'></div>", unsafe_allow_html=True)
 
-    st.caption("🎓 APRENDER")
-    if st.button("Bee Academy", use_container_width=True):
-        st.session_state["page"] = "🎓 Bee Academy";
-        st.rerun()
+    # GRID 1
+    c1, c2, c3 = st.columns(3, gap="small")
+    with c1:
+        if st.button("🏠\nHome", use_container_width=True):
+            change_page("🏠 Home")
+    with c2:
+        if st.button("💼\nCarteira", use_container_width=True):
+            change_page("💼 Carteira")
+    with c3:
+        if st.button("💸\nControle", use_container_width=True):
+            change_page("💸 Controle")
 
-    st.divider()
+    st.markdown("<div style='height: 5px'></div>", unsafe_allow_html=True)
 
-    with st.expander(f"⚙️ Configurações"):
-        c_mode = st.toggle("💡 Modo Claro", value=st.session_state.get("bee_light", False))
-        if c_mode != st.session_state.get("bee_light", False):
-            st.session_state["bee_light"] = c_mode;
+    # GRID 2
+    c4, c5, c6 = st.columns(3, gap="small")
+    with c4:
+        if st.button("🔍\nAnalisar", use_container_width=True):
+            change_page("🔍 Analisar")
+    with c5:
+        if st.button("📰\nNotícias", use_container_width=True):
+            change_page("📰 Notícias")
+    with c6:
+        if st.button("🧮\nCalc", use_container_width=True):
+            change_page("🧮 Calculadoras")
+
+    st.markdown("<div style='height: 5px'></div>", unsafe_allow_html=True)
+
+    # GRID 3 (Extras)
+    c7, c8, c9 = st.columns(3, gap="small")
+    with c7:
+        if st.button("🎓\nAcademy", use_container_width=True):
+            change_page("🎓 Bee Academy")
+    with c8:
+        if st.button("⚙️\nConfig", use_container_width=True):
+            # NÃO abre dialog aqui (proibido aninhar)
+            st.session_state["open_config"] = True
             st.rerun()
-
-        if st.button("Sair (Logout)", use_container_width=True):
-            st.session_state.clear();
+    with c9:
+        if st.button("🚪\nSair", use_container_width=True):
+            st.session_state.clear()
             st.rerun()
 
 
 def render_floating_menu_button():
     st.markdown('<div class="floating-menu-container">', unsafe_allow_html=True)
-
-    # O clique aqui roda só este pedacinho de código
     if st.button("☰ Menu", key="btn_main_menu_float"):
-        open_menu_modal()  # Abre o pop-up
-
-    st.markdown('</div>', unsafe_allow_html=True)
+        open_menu_modal()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # =============================================================================
-# 5) LOGIN
+# LOGIN & ROUTER
 # =============================================================================
 def render_login(logo_img):
     st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
     cols = st.columns([1, 6, 1])
-    center = cols[1]
-
-    with center:
-        st.markdown("<div style='text-align:center; margin-bottom: 20px;'>", unsafe_allow_html=True)
+    with cols[1]:
+        st.markdown(
+            "<div style='text-align:center; margin-bottom: 20px;'>",
+            unsafe_allow_html=True,
+        )
         if logo_img:
             st.image(logo_img, width=140)
         else:
@@ -226,19 +242,17 @@ def render_login(logo_img):
         st.markdown("</div>", unsafe_allow_html=True)
 
         tab_login, tab_register = st.tabs(["Entrar", "Criar Conta"])
-
         with tab_login:
             with st.form("login_form"):
                 l_user = st.text_input("Usuário")
                 l_pass = st.text_input("Senha", type="password")
-                btn_login = st.form_submit_button("Acessar Painel", type="primary", use_container_width=True)
-
-                if btn_login:
+                if st.form_submit_button(
+                    "Acessar Painel", type="primary", use_container_width=True
+                ):
                     name = login_user(l_user, l_pass)
                     if name:
                         st.session_state["user_logged_in"] = True
                         st.session_state["username"] = l_user
-                        st.session_state["user_name_display"] = name
                         try:
                             c_df, g_df = cached_load_user_data(l_user)
                             st.session_state["carteira_df"] = c_df
@@ -265,32 +279,42 @@ def render_login(logo_img):
     st.stop()
 
 
-# =============================================================================
-# 6) ROTEADOR
-# =============================================================================
 def route_pages():
     page = st.session_state.get("page", "🏠 Home")
     if page == "🏠 Home":
+        from bee.pages.home import render_home
+
         render_home()
     elif page == "📰 Notícias":
+        from bee.pages.noticias import render_noticias
+
         render_noticias()
     elif page == "🔍 Analisar":
+        from bee.pages.analisar import render_analisar
+
         render_analisar()
     elif page == "💼 Carteira":
+        from bee.pages.carteira import render_carteira
+
         render_carteira()
     elif page == "💸 Controle":
+        from bee.pages.controle import render_controle
+
         render_controle()
     elif page == "🧮 Calculadoras":
+        from bee.pages.calculadoras import render_calculadoras
+
         render_calculadoras()
     elif page == "🎓 Bee Academy":
+        from bee.pages.academy import render_academy
+
         render_academy()
     else:
+        from bee.pages.home import render_home
+
         render_home()
 
 
-# =============================================================================
-# MAIN
-# =============================================================================
 def main():
     logo_img = apply_page_config()
     apply_theme_css()
@@ -299,29 +323,27 @@ def main():
     init_db()
     init_academy_db()
 
-    if st.session_state.get("bee_light"):
-        apply_bee_light_css()
-
     if not st.session_state.get("user_logged_in", False):
         render_login(logo_img)
         return
 
-    # Garante dados carregados
     if "carteira_df" not in st.session_state:
         c_df, g_df = cached_load_user_data(st.session_state["username"])
         st.session_state["carteira_df"] = c_df
         st.session_state["gastos_df"] = g_df
 
-    # Renderiza a NOVA Barra Simples (Só Relógio, Sem travamentos)
     render_top_bar_simple()
-
-    # Renderiza Botão Menu
     render_floating_menu_button()
 
-    # Renderiza Página
-    route_pages()
+    # ✅ abre o Config dialog fora do Menu dialog (sem nesting)
+    if st.session_state.get("open_config", False):
+        open_config_modal()
 
-    st.markdown("<div class='bee-footer'>Bee Finanças • Modo Turbo</div>", unsafe_allow_html=True)
+    route_pages()
+    st.markdown(
+        "<div class='bee-footer'>Bee Finanças • Modo Turbo</div>",
+        unsafe_allow_html=True,
+    )
 
 
 if __name__ == "__main__":

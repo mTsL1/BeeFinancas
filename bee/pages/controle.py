@@ -341,10 +341,14 @@ def _nav_btn(label: str, tab_key: str, icon: str = ""):
     if active:
         if st.button(caption, type="primary", use_container_width=True, key=f"ctl_nav_{tab_key}_on"):
             st.session_state["controle_tab"] = tab_key
+            # CORREÇÃO AQUI: Garante que o popup fecha ao navegar
+            st.session_state["controle_open_new_popup"] = False
             st.rerun()
     else:
         if st.button(caption, use_container_width=True, key=f"ctl_nav_{tab_key}_off"):
             st.session_state["controle_tab"] = tab_key
+            # CORREÇÃO AQUI: Garante que o popup fecha ao navegar
+            st.session_state["controle_open_new_popup"] = False
             st.rerun()
 
 
