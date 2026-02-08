@@ -20,6 +20,7 @@ from bee.db import (
     load_user_data_db,
     update_password_db,
     delete_user_db,
+    reset_password_with_security  # <--- IMPORT NOVO
 )
 
 
@@ -96,7 +97,7 @@ def apply_app_shell_css():
 
 
 # =============================================================================
-# CONFIG POP-UP (TROCA DE SENHA CORRIGIDA)
+# CONFIG POP-UP
 # =============================================================================
 @st.dialog("⚙️ Configurações")
 def open_config_modal():
@@ -116,7 +117,6 @@ def open_config_modal():
                     st.error("A senha deve ter no mínimo 4 caracteres.")
                 elif update_password_db(st.session_state.get("username", ""), old, new):
                     st.success("Senha alterada com sucesso! Faça login novamente.")
-                    # Limpeza crítica para garantir que a nova senha pegue
                     st.cache_data.clear()
                     st.session_state.clear()
                     st.rerun()
@@ -173,7 +173,7 @@ def render_floating_menu_button():
 
 
 # =============================================================================
-# TELA DE LOGIN (LOGO PEQUENA E CENTRALIZADA)
+# TELA DE LOGIN (COM RECUPERAÇÃO DE SENHA)
 # =============================================================================
 def render_login(logo_img):
     st.markdown("""
@@ -232,19 +232,18 @@ def render_login(logo_img):
 
         # --- LOGO PEQUENA E CENTRALIZADA ---
         if logo_img:
-            # 3 colunas para garantir o centro perfeito
-            # Usando width=100 para forçar um tamanho pequeno e leve
             c_img_l, c_img_c, c_img_r = st.columns([1, 1, 1])
             with c_img_c:
-                st.image(logo_img, width=100)  # Tamanho fixo reduzido para performance
+                st.image(logo_img, width=100)
 
         st.markdown('<div class="login-title">Bee Finanças</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-sub">Sua central de inteligência financeira</div>', unsafe_allow_html=True)
 
-        # Card Nativo
+        # Card Nativo com 3 Abas
         with st.container(border=True):
-            tab_entrar, tab_criar = st.tabs(["Acessar Conta", "Criar Nova"])
+            tab_entrar, tab_criar, tab_recuperar = st.tabs(["Acessar", "Criar", "🆘 Recuperar"])
 
+            # 1. ENTRAR
             with tab_entrar:
                 with st.form("login_form"):
                     st.text_input("Usuário", key="l_u", placeholder="Digite seu usuário")
@@ -269,19 +268,41 @@ def render_login(logo_img):
                         else:
                             st.error("Dados incorretos.")
 
+            # 2. CRIAR CONTA (COM PALAVRA DE SEGURANÇA)
             with tab_criar:
+                st.caption("Crie sua conta e defina uma palavra de segurança.")
                 with st.form("register_form"):
                     new_u = st.text_input("Novo Usuário", placeholder="Ex: mateus_bee")
                     new_n = st.text_input("Seu Nome", placeholder="Ex: Mateus")
                     new_p = st.text_input("Senha", type="password")
 
+                    st.markdown("---")
+                    st.caption("🔐 Segurança (Guarde isso para recuperar a conta!)")
+                    sec_word = st.text_input("Palavra Secreta", placeholder="Ex: Nome da mãe, 1º pet...")
+
                     if st.form_submit_button("CRIAR CONTA", use_container_width=True):
                         if len(new_p) < 4:
                             st.warning("Senha muito curta.")
-                        elif create_user(new_u, new_p, new_n):
+                        elif not sec_word:
+                            st.warning("Defina uma Palavra Secreta.")
+                        elif create_user(new_u, new_p, new_n, sec_word):
                             st.success("Conta criada! Faça login.")
                         else:
                             st.error("Usuário já existe.")
+
+            # 3. RECUPERAR SENHA
+            with tab_recuperar:
+                st.caption("Esqueceu a senha? Use sua palavra secreta.")
+                with st.form("recover_form"):
+                    rec_u = st.text_input("Qual seu usuário?")
+                    rec_word = st.text_input("Sua Palavra Secreta")
+                    rec_new_p = st.text_input("Nova Senha", type="password")
+
+                    if st.form_submit_button("REDEFINIR SENHA", use_container_width=True):
+                        if reset_password_with_security(rec_u, rec_word, rec_new_p):
+                            st.success("Senha alterada com sucesso! Volte para Acessar.")
+                        else:
+                            st.error("Dados incorretos. Verifique usuário ou palavra secreta.")
 
     st.stop()
 

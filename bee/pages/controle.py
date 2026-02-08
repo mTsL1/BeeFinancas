@@ -44,56 +44,50 @@ def _compact_brl(v: float) -> str:
     return fmt_money_brl(v, 2)
 
 
+def _get_sorted_categories(cats_list):
+    """Ordena A-Z, coloca 'Outros' no fim e adiciona 'Nova'."""
+    unique = set(cats_list)
+    if "Outros" in unique: unique.remove("Outros")
+    # Se "Nova..." ou similares existirem, remove pra limpar
+    clean_list = [c for c in unique if "Nova" not in c]
+
+    sorted_list = sorted(clean_list)
+    return sorted_list + ["Outros", "➕ Nova Categoria..."]
+
+
 def _apply_unified_css():
     st.markdown("""
         <style>
-          /* KPI CARDS MODERNOS */
+          /* KPI CARDS */
           .kpi-container {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px;
           }
           .kpi-card {
             background: rgba(255,255,255,0.03);
             border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 12px;
-            padding: 20px;
+            border-radius: 12px; padding: 20px;
             display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
-            backdrop-filter: blur(10px);
-            transition: transform 0.2s;
+            backdrop-filter: blur(10px); transition: transform 0.2s;
           }
           .kpi-card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.1); }
 
-          .kpi-label { 
-            font-size: 10px; opacity: 0.5; margin-bottom: 5px; 
-            font-weight: 700; text-transform: uppercase; letter-spacing: 2px; 
-          }
-          .kpi-value { 
-            font-size: 26px; font-weight: 700; color: #fff; letter-spacing: -0.5px;
-          }
+          .kpi-label { font-size: 10px; opacity: 0.5; margin-bottom: 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; }
+          .kpi-value { font-size: 26px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
 
-          /* BOTÕES NAV TIPO ABAS */
+          /* BOTÕES NAV */
           div[data-testid="column"] > div > div > div > button {
-             width: 100% !important; height: 45px !important;
-             border: none !important;
-             background: rgba(255, 255, 255, 0.05) !important;
-             border-radius: 8px !important; 
-             font-weight: 600 !important; font-size: 13px !important;
-             color: #aaa !important;
+             width: 100% !important; height: 45px !important; border: none !important;
+             background: rgba(255, 255, 255, 0.05) !important; border-radius: 8px !important; 
+             font-weight: 600 !important; font-size: 13px !important; color: #aaa !important;
           }
           div[data-testid="column"] > div > div > div > button:hover {
              background: rgba(255, 255, 255, 0.1) !important; color: #fff !important;
-          }
-          div[data-testid="column"] > div > div > div > button:focus {
-             background: rgba(255, 215, 0, 0.15) !important; color: #FFD700 !important;
-          }
-
-          /* Expander Limpo */
-          .streamlit-expanderHeader { 
-            background-color: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; 
           }
 
           /* Barra de Progresso Dourada */
           .stProgress > div > div > div > div { background-color: #FFD700; }
 
+          .streamlit-expanderHeader { background-color: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; }
           @media (max-width: 900px){ .kpi-container { grid-template-columns: 1fr 1fr; } }
         </style>
     """, unsafe_allow_html=True)
@@ -151,9 +145,9 @@ def _ensure_gastos_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna(subset=["Data"])
 
     if df["Valor"].dtype == object:
-        df["Valor"] = df["Valor"].astype(str).str.replace(r"[R$ ]", "", regex=True) \
-            .str.replace(".", "", regex=False) \
-            .str.replace(",", ".", regex=False)
+        df["Valor"] = df["Valor"].astype(str).str.replace(r"[R$ ]", "", regex=True).str.replace(".", "",
+                                                                                                regex=False).str.replace(
+            ",", ".", regex=False)
     df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce").fillna(0.0)
 
     df["Tipo"] = df["Tipo"].astype(str).str.strip().str.capitalize()
@@ -176,7 +170,7 @@ def _append_rows(gastos_df: pd.DataFrame, rows: list[dict]) -> pd.DataFrame:
     return pd.concat([base, new_df], ignore_index=True)
 
 
-# --- FUNÇÃO CRÍTICA (RESTAURADA) ---
+# --- FUNÇÃO RESTAURADA ---
 def _spent_by_category_month(gastos_df: pd.DataFrame, month_key: str) -> dict:
     df = _ensure_gastos_columns(gastos_df)
     if df.empty: return {}
@@ -210,16 +204,13 @@ def _apply_recurring_for_month(username, gastos_df, yyyymm):
     created = 0
     rows = []
     year, month = map(int, yyyymm.split("-"))
-
     for _, r in df_rec.iterrows():
         rec_id = int(r.get("rec_id") or r.get("id") or 0)
         if int(r.get("active", 1)) != 1: continue
         if _recurring_was_applied(username, rec_id, yyyymm): continue
-
         import calendar
         _, last_day = calendar.monthrange(year, month)
         day = min(int(r.get("day_of_month") or 5), last_day)
-
         rows.append({
             "Data": datetime(year, month, day),
             "Categoria": str(r.get("categoria") or "Outros"), "Descricao": str(r.get("descricao") or ""),
@@ -228,7 +219,6 @@ def _apply_recurring_for_month(username, gastos_df, yyyymm):
         })
         _mark_recurring_applied(username, rec_id, yyyymm)
         created += 1
-
     if created > 0: gastos_df = _append_rows(gastos_df, rows)
     return _ensure_gastos_columns(gastos_df), created
 
@@ -238,11 +228,11 @@ def _guess_column_mapping(df_columns):
     mapping = {col: None for col in GASTOS_COLS}
     keywords = {
         "Data": ["data", "date", "dia", "dt"],
-        "Categoria": ["categoria", "cat", "grupo", "tag"],
+        "Categoria": ["categoria", "cat", "grupo"],
         "Descricao": ["descrição", "desc", "nome", "histórico", "loja"],
         "Valor": ["valor", "preço", "total", "amount"],
         "Tipo": ["tipo", "entrada/saída", "movimento"],
-        "Pagamento": ["pagamento", "forma", "conta"]
+        "Pagamento": ["pagamento", "forma"]
     }
     cols_lower = [c.lower().strip() for c in df_columns]
     for target_col, keys in keywords.items():
@@ -256,21 +246,6 @@ def _guess_column_mapping(df_columns):
             if matches: match = df_columns[cols_lower.index(matches[0])]
         mapping[target_col] = match
     return mapping
-
-
-# --- HELPER DE ORDENAÇÃO DE CATEGORIA ---
-def _get_sorted_categories(cats_list):
-    """Ordena alfabeticamente, move 'Outros' para o final e adiciona 'Nova'"""
-    # Remove duplicatas e 'Outros' se existir
-    unique_cats = set(cats_list)
-    if "Outros" in unique_cats:
-        unique_cats.remove("Outros")
-
-    # Ordena o resto
-    sorted_cats = sorted(list(unique_cats))
-
-    # Remonta: [A-Z] + [Outros] + [Nova]
-    return sorted_cats + ["Outros", "➕ Nova Categoria..."]
 
 
 # =========================================================
@@ -290,7 +265,7 @@ def _render_add_transaction_inline(username: str):
         default_cats = ["Moradia", "Alimentação", "Transporte", "Lazer", "Investimento", "Salário", "Saúde", "Educação"]
         existing_cats = df_g["Categoria"].dropna().unique().tolist()
 
-        # Usa a função de ordenação corrigida
+        # USA O ORDENADOR INTELIGENTE
         all_cats = _get_sorted_categories(default_cats + existing_cats)
 
         with st.form("form_add_tx", clear_on_submit=True):
@@ -338,7 +313,7 @@ def _render_dashboard(username: str):
         st.subheader("Visão Geral")
     with c_sel:
         idx_def = all_months.index(_month_key(today)) if _month_key(today) in all_months else len(all_months) - 1
-        mes_sel = st.selectbox("", all_months, index=idx_def, key="dash_mes", label_visibility="collapsed")
+        mes_sel = st.selectbox("Mês", all_months, index=idx_def, key="dash_mes", label_visibility="collapsed")
 
     dfm = df_g[_ym(df_g["Data"]) == mes_sel].copy()
 
@@ -387,7 +362,7 @@ def _render_extrato(username: str):
     with c1:
         st.subheader("Movimentações")
     with c2:
-        mes = st.selectbox("", all_months, index=len(all_months) - 1, key="ext_mes", label_visibility="collapsed")
+        mes = st.selectbox("Mês", all_months, index=len(all_months) - 1, key="ext_mes", label_visibility="collapsed")
 
     df_new, count = _apply_recurring_for_month(username, df_g, mes)
     if count > 0:
@@ -429,27 +404,28 @@ def _render_envelopes(username: str):
     st.subheader("Metas de Gasto")
     df_g = _ensure_gastos_columns(st.session_state.get("gastos_df", pd.DataFrame(columns=GASTOS_COLS)))
     budgets = _get_budgets(username)
-    spent = _spent_by_category_month(df_g, _month_key(datetime.now()))  # Função restaurada
+    spent = _spent_by_category_month(df_g, _month_key(datetime.now()))  # Função Restaurada!
 
-    # Categorias com "Outros" no fim
+    # Categorias com ordenação correta
     default_cats = ["Moradia", "Alimentação", "Transporte", "Lazer", "Educação", "Saúde"]
     user_cats = list(spent.keys()) + list(budgets.keys())
     all_cats = _get_sorted_categories(default_cats + user_cats)
 
+    # --- INPUT DE METAS CORRIGIDO ---
     with st.expander("Definir Meta", expanded=True):
         c1, c2 = st.columns([1.5, 1])
         with c1:
             sel_cat = st.selectbox("Categoria", all_cats, key="env_cat")
             if sel_cat == "➕ Nova Categoria...":
-                new_cat_txt = st.text_input("Digite o nome da meta", placeholder="Ex: Viagem")
+                new_cat_txt = st.text_input("Nome da nova meta", placeholder="Ex: Viagem")
             else:
                 new_cat_txt = None
 
         with c2:
             current_val = float(budgets.get(sel_cat, 0.0)) if sel_cat != "➕ Nova Categoria..." else 0.0
-            lim = st.number_input("Limite Mensal (R$)", value=current_val, step=50.0, key="env_lim")
+            lim = st.number_input("Limite (R$)", value=current_val, step=50.0, key="env_lim")
 
-        # BOTÃO EM LINHA NOVA (FULL WIDTH) PARA NÃO FICAR TORTO
+        # BOTÃO FORA DAS COLUNAS (FULL WIDTH) PARA NÃO FICAR TORTO
         if st.button("Salvar Meta", type="primary", use_container_width=True):
             final_cat = new_cat_txt.strip() if (sel_cat == "➕ Nova Categoria..." and new_cat_txt) else sel_cat
             if final_cat and final_cat != "➕ Nova Categoria...":
@@ -461,7 +437,7 @@ def _render_envelopes(username: str):
 
     # Renderiza barras
     displayed_cats = sorted(set(list(budgets.keys()) + list(spent.keys())))
-    if "Outros" in displayed_cats:  # Move Outros pro fim na exibição tbm
+    if "Outros" in displayed_cats:
         displayed_cats.remove("Outros")
         displayed_cats.append("Outros")
 

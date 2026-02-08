@@ -6,9 +6,9 @@
   <component name="ChangeListManager">
     <list default="true" id="bd2c7d15-b86f-4060-91a7-020c58b657f6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bee/pages/controle.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/pages/controle.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bee/db.py" beforeDir="false" afterPath="$PROJECT_DIR$/bee/db.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bee_database.db" beforeDir="false" afterPath="$PROJECT_DIR$/bee_database.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -93,7 +93,7 @@
       <workItem from="1770404790545" duration="17816000" />
       <workItem from="1770477127073" duration="14449000" />
       <workItem from="1770508574328" duration="8770000" />
-      <workItem from="1770554260750" duration="3036000" />
+      <workItem from="1770554260750" duration="4363000" />
     </task>
     <servers />
   </component>
