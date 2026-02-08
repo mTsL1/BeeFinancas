@@ -21,7 +21,6 @@ from bee.db import (
     update_password_db,
     delete_user_db,
 )
-from bee.academy.progress import init_academy_db
 
 
 # =============================================================================
@@ -97,7 +96,7 @@ def apply_app_shell_css():
 
 
 # =============================================================================
-# CONFIG POP-UP
+# CONFIG POP-UP (TROCA DE SENHA CORRIGIDA)
 # =============================================================================
 @st.dialog("⚙️ Configurações")
 def open_config_modal():
@@ -112,11 +111,15 @@ def open_config_modal():
 
             if st.form_submit_button("Atualizar Senha", type="primary", use_container_width=True):
                 if new != new2:
-                    st.error("Senhas não conferem.")
+                    st.error("As senhas não conferem.")
                 elif len(new) < 4:
-                    st.error("Senha muito curta.")
+                    st.error("A senha deve ter no mínimo 4 caracteres.")
                 elif update_password_db(st.session_state.get("username", ""), old, new):
-                    st.success("Sucesso! ✅")
+                    st.success("Senha alterada com sucesso! Faça login novamente.")
+                    # Limpeza crítica para garantir que a nova senha pegue
+                    st.cache_data.clear()
+                    st.session_state.clear()
+                    st.rerun()
                 else:
                     st.error("Senha atual incorreta.")
 
@@ -150,18 +153,16 @@ def open_menu_modal():
     with c4:
         if st.button("🔍\nAnalisar", use_container_width=True): go("🔍 Analisar")
     with c5:
-        if st.button("📰\nNotícias", use_container_width=True): go("📰 Notícias")
-    with c6:
         if st.button("🧮\nCalc", use_container_width=True): go("🧮 Calculadoras")
-
-    st.write("")
-    c7, c8 = st.columns([1, 1], gap="small")
-    with c7:
-        if st.button("🎓\nAcademy", use_container_width=True): go("🎓 Bee Academy")
-    with c8:
+    with c6:
         if st.button("⚙️\nConfig", use_container_width=True):
             st.session_state["open_config"] = True
             st.rerun()
+
+    st.write("")
+    if st.button("🚪 Sair", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
 
 def render_floating_menu_button():
@@ -172,32 +173,13 @@ def render_floating_menu_button():
 
 
 # =============================================================================
-# TELA DE LOGIN (CORRIGIDA - OLHO TRANSPARENTE)
+# TELA DE LOGIN (LOGO PEQUENA E CENTRALIZADA)
 # =============================================================================
 def render_login(logo_img):
     st.markdown("""
     <style>
-        /* --- CORREÇÃO DEFINITIVA DO OLHO DA SENHA --- */
-        /* Alvo: Botões dentro do input que tenham "password" no título (Show/Hide) */
-        div[data-baseweb="input"] > div > button[title*="password"] {
-            background: transparent !important;  /* Remove o fundo amarelo */
-            border: none !important;             /* Remove borda */
-            box-shadow: none !important;         /* Remove sombra */
-            color: rgba(255, 255, 255, 0.6) !important; /* Cor do ícone discreta */
-            margin: 0 !important;
-            height: auto !important;
-            transform: none !important; /* Impede que ele cresça no hover */
-        }
-        /* Hover do ícone do olho */
-        div[data-baseweb="input"] > div > button[title*="password"]:hover {
-            background: transparent !important;
-            color: rgba(255, 255, 255, 1.0) !important; /* Fica branco ao passar o mouse */
-            box-shadow: none !important;
-        }
-
-        /* --- Botões PRINCIPAIS do Formulário (Entrar/Criar) --- */
-        /* Usamos um seletor mais específico para pegar só o botão de submit */
-        div[data-testid="stForm"] > div > div > button[kind="primaryFormSubmit"] {
+        /* Botões do Formulário - Dourados Bee */
+        div[data-testid="stForm"] button {
             background: linear-gradient(135deg, #FFD700 0%, #FFB300 100%) !important;
             color: #000 !important;
             border: none !important;
@@ -208,9 +190,25 @@ def render_login(logo_img):
             margin-top: 10px !important;
             box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2) !important;
         }
-        div[data-testid="stForm"] > div > div > button[kind="primaryFormSubmit"]:hover {
+        div[data-testid="stForm"] button:hover {
             transform: scale(1.02);
             box-shadow: 0 6px 20px rgba(255, 215, 0, 0.4) !important;
+        }
+
+        /* CORREÇÃO DO BOTÃO "OLHO" DA SENHA */
+        div[data-baseweb="input"] > div > button[title*="password"] {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: rgba(255, 255, 255, 0.6) !important;
+            margin: 0 !important;
+            height: auto !important;
+            transform: none !important;
+        }
+        div[data-baseweb="input"] > div > button[title*="password"]:hover {
+            background: transparent !important;
+            color: rgba(255, 255, 255, 1.0) !important;
+            box-shadow: none !important;
         }
 
         /* Títulos Centralizados */
@@ -232,11 +230,13 @@ def render_login(logo_img):
     with col_main:
         st.markdown("<div style='height: 40px'></div>", unsafe_allow_html=True)
 
-        # LOGO CENTRALIZADA
+        # --- LOGO PEQUENA E CENTRALIZADA ---
         if logo_img:
-            c_img_l, c_img_c, c_img_r = st.columns([1, 2, 1])
+            # 3 colunas para garantir o centro perfeito
+            # Usando width=100 para forçar um tamanho pequeno e leve
+            c_img_l, c_img_c, c_img_r = st.columns([1, 1, 1])
             with c_img_c:
-                st.image(logo_img, use_container_width=True)
+                st.image(logo_img, width=100)  # Tamanho fixo reduzido para performance
 
         st.markdown('<div class="login-title">Bee Finanças</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-sub">Sua central de inteligência financeira</div>', unsafe_allow_html=True)
@@ -291,6 +291,7 @@ def render_login(logo_img):
 # =============================================================================
 def route_pages():
     pg = st.session_state.get("page", "🏠 Home")
+
     if pg == "🏠 Home":
         from bee.pages.home import render_home;
         render_home()
@@ -303,15 +304,9 @@ def route_pages():
     elif pg == "🔍 Analisar":
         from bee.pages.analisar import render_analisar;
         render_analisar()
-    elif pg == "📰 Notícias":
-        from bee.pages.noticias import render_noticias;
-        render_noticias()
     elif pg == "🧮 Calculadoras":
         from bee.pages.calculadoras import render_calculadoras;
         render_calculadoras()
-    elif pg == "🎓 Bee Academy":
-        from bee.pages.academy import render_academy;
-        render_academy()
     else:
         from bee.pages.home import render_home;
         render_home()
@@ -323,7 +318,6 @@ def main():
     apply_app_shell_css()
     init_session_state()
     init_db()
-    init_academy_db()
 
     if "privacy_mode" not in st.session_state: st.session_state["privacy_mode"] = False
 
