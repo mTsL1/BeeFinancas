@@ -1,1 +1,1 @@
-streamlitpandasyfinanceplotlyfeedparserrequestspillowdeep-translator
+streamlitpandasyfinanceplotlyfeedparserrequestspillowdeep-translatoropenpyxl
